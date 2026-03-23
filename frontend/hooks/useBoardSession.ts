@@ -654,9 +654,10 @@ export function useBoardSession() {
             }
         }
 
-        // Sync placed actors from server — but skip during Phase 3+ in bot games,
-        // because the client is the source of truth for relocations and other local changes.
-        const skipActorSync = game.isBotGame && phase >= 3;
+        // Sync placed actors from server — skip entirely for bot games,
+        // because bot actors are placed client-side and the server has no record of them.
+        // Only sync actors from server in PvP games where both players store their placements.
+        const skipActorSync = game.isBotGame;
         if (!skipActorSync) {
             let allStagedActors: any[] = [];
             Object.values(game.gameState.stagedActors || {}).forEach((actors: any) => {
