@@ -71,16 +71,32 @@ export function initOpponentData(
 
     if (game && game.players) {
         game.players.forEach((p: any) => {
-            if (p.citizenId !== localCitizenId) {
-                const id = p.citizenId || p.address;
-                opponents[id] = {
-                    id,
+            const pid = p.citizenId || p.address;
+            if (pid !== localCitizenId) {
+                opponents[pid] = {
+                    id: pid,
                     resources: { ...baseResources },
                     cards: {},
                 };
             }
         });
-    } else {
+    }
+
+    // For bot games, ensure bot opponents exist even if not in game.players
+    if (game?.isBotGame && Object.keys(opponents).length < 2) {
+        DEFAULT_BOT_PLAYERS.forEach(opp => {
+            if (!opponents[opp.id]) {
+                opponents[opp.id] = {
+                    id: opp.id,
+                    resources: { ...baseResources },
+                    cards: {},
+                };
+            }
+        });
+    }
+
+    // Fallback: no game data at all
+    if (!game || (!game.players && Object.keys(opponents).length === 0)) {
         DEFAULT_BOT_PLAYERS.forEach(opp => {
             opponents[opp.id] = {
                 id: opp.id,

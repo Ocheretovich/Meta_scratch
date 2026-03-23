@@ -518,9 +518,9 @@ export const triggerOpponentPlacements = async (
     await new Promise(r => setTimeout(r, 1500));
 
     const botIdentities = [
-        { id: 'bot-1', name: 'Viper' },
-        { id: 'bot-2', name: 'Ghost' },
-        { id: 'bot-3', name: 'Union' }
+        { id: 'p2', name: 'Viper' },
+        { id: 'p3', name: 'Ghost' },
+        { id: 'p4', name: 'Union' }
     ];
 
     const actorDefinitions = [
@@ -533,8 +533,8 @@ export const triggerOpponentPlacements = async (
     const rspTokens = ['rock', 'paper', 'scissors'];
     const bidTypes = ['product', 'electricity', 'recycling'];
 
-    const botsInGame = game.players.filter((p: any) => (p.citizenId || '').startsWith('bot-'));
-    const activeBots = botsInGame.length > 0 ? botsInGame : botIdentities;
+    // Use bot identities directly — bot players are not stored in game.players
+    const activeBots = botIdentities;
 
     for (const bot of activeBots) {
         const botId = bot.citizenId || bot.id;
