@@ -187,7 +187,7 @@ export interface Game {
     transactions: GameTransaction[];
     messages: ChatMessage[];
     startTime?: number;
-    isTest?: boolean;
+    isBotGame?: boolean;
     deletedAt?: number;
     gameState?: {
         phaseTicker: number;

@@ -107,13 +107,13 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
                             const base = isRobot ? 3 : 1;
                             const bonus = rewardAccumulator[id] || 0;
                             const total = base + bonus;
-                            
+
                             const actorType = participant.actorType?.toLowerCase();
                             let resName = conflict.resourceType || '';
                             if (actorType === 'politician') resName = 'power';
                             else if (actorType === 'scientist') resName = 'knowledge';
                             else if (actorType === 'artist') resName = 'art';
-                            
+
                             const label = isRobot ? (total === 1 ? 'Resource' : 'Resources') : (resName === 'action_card' ? 'Action Card' : (total === 1 ? 'Value' : 'Values'));
                             const capitalizedResName = resName === 'action_card' ? '' : resName.charAt(0).toUpperCase() + resName.slice(1);
                             rewardText = resName === 'action_card' ? `${total} Action Card` : `${total} ${label}${capitalizedResName ? ` (${capitalizedResName})` : ''}`;
@@ -208,8 +208,51 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
     }, [conflict.locId, isResolved, conflict.opponents, lastLocId, localPlayerId]);
 
     // 2. Real-time Sync for PvP Choices
+    const [pvpAllSubmitted, setPvpAllSubmitted] = useState(false);
+
     useEffect(() => {
-        if (!game?.gameState?.decisions || step !== 'intro') return;
+        if (game?.isBotGame || step !== 'intro') return;
+
+        // PvP: Poll for opponent RPS submissions via get-rps
+        const gameId = game?.id || (window.location.pathname.split('/').pop());
+        if (!gameId) return;
+
+        const pollInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/games/${gameId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'get-rps',
+                        conflictId: conflict.locId,
+                        expectedParticipants: conflict.opponents.length + 1
+                    })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.allSubmitted && data.choices) {
+                        // All players submitted — update opponent choices (hidden until now)
+                        const newOppChoices: { [id: string]: string } = {};
+                        conflict.opponents.forEach(opp => {
+                            const oppPlayerId = opp.playerId || opp.actorId;
+                            if (data.choices[oppPlayerId]) {
+                                newOppChoices[opp.actorId] = data.choices[oppPlayerId].choice;
+                            }
+                        });
+                        setOpponentChoices(prev => ({ ...prev, ...newOppChoices }));
+                        setPvpAllSubmitted(true);
+                        clearInterval(pollInterval);
+                    }
+                }
+            } catch (e) { console.error("Failed to poll RPS choices", e); }
+        }, 2000);
+
+        return () => clearInterval(pollInterval);
+    }, [game?.isBotGame, game?.id, step, conflict.locId, conflict.opponents]);
+
+    // Legacy: Sync for bot games via decisions
+    useEffect(() => {
+        if (!game?.isBotGame || !game?.gameState?.decisions || step !== 'intro') return;
 
         const decisions = game.gameState.decisions;
         const newOppChoices = { ...opponentChoices };
@@ -228,7 +271,7 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
         if (changed) {
             setOpponentChoices(newOppChoices);
         }
-    }, [game?.gameState?.decisions, conflict.locId, conflict.opponents, step, opponentChoices]);
+    }, [game?.gameState?.decisions, game?.isBotGame, conflict.locId, conflict.opponents, step, opponentChoices]);
 
     // 3. Logic: Resolve the Conflict
     const resolveConflict = (pChoice: string, applyBids: boolean = true): ConflictResult => {
@@ -255,18 +298,20 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
     // Broadcast local choice to server
     const broadcastChoice = async (choice: string) => {
         const gameId = game?.id || (window.location.pathname.split('/').pop());
-        if (!gameId || game?.isTest) return; // Don't sync in bot tests
+        if (!gameId || game?.isBotGame) return; // Don't sync in bot games
 
         try {
+            // Use submit-rps for hidden-until-all-submit PvP
             await fetch(`/api/games/${gameId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'sync-decision',
+                    action: 'submit-rps',
                     citizenId: localPlayerId,
-                    decisions: {
-                        conflictChoices: { [conflict.locId]: choice }
-                    }
+                    conflictId: conflict.locId,
+                    choice: choice,
+                    bid: conflict.playerActor.bid || null,
+                    expectedParticipants: conflict.opponents.length + 1
                 })
             });
         } catch (e) {
@@ -596,13 +641,22 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
                         <button
                             onClick={handleReveal}
                             disabled={(() => {
-                                // Disable Reveal if any human participant hasn't committed yet
+                                if (!game?.isBotGame) {
+                                    // PvP: require player to have chosen AND all opponents to have submitted
+                                    return !playerChoice || !pvpAllSubmitted;
+                                }
+                                // Bot: disable if any human participant hasn't committed yet
                                 const humans = [localPlayerId, ...conflict.opponents.map(o => o.actorId)].filter(id => !id.startsWith('bot'));
                                 return humans.some(id => id === localPlayerId ? !playerChoice : !opponentChoices[id]);
                             })()}
                             className="px-16 py-4 bg-[#d4af37] text-black font-black text-2xl uppercase tracking-[0.2em] rounded-sm hover:bg-[#ffe066] shadow-[0_0_40px_rgba(212,175,55,0.4)] transition-transform hover:scale-105 active:scale-95 animate-in zoom-in duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
                         >
                             {(() => {
+                                if (!game?.isBotGame) {
+                                    if (!playerChoice) return 'SELECT YOUR CHOICE';
+                                    if (!pvpAllSubmitted) return 'WAITING FOR OPPONENT...';
+                                    return 'Reveal Conflict';
+                                }
                                 const humans = [localPlayerId, ...conflict.opponents.map(o => o.actorId)].filter(id => !id.startsWith('bot'));
                                 const pendingCount = humans.filter(id => id === localPlayerId ? !playerChoice : !opponentChoices[id]).length;
                                 return pendingCount > 0 ? `WAITING (${pendingCount}/${humans.length})` : 'Reveal Conflict';

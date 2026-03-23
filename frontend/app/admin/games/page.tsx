@@ -218,8 +218,8 @@ export default function AdminGamesPage() {
                                             </span>
                                             <div className="flex items-center gap-2 mt-1">
                                                 <span className="text-[10px] text-gray-500 font-mono tracking-tight opacity-50">{game.id}</span>
-                                                {game.isTest && (
-                                                    <span className="text-[8px] bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest">Test</span>
+                                                {game.isBotGame && (
+                                                    <span className="text-[8px] bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest">Bots</span>
                                                 )}
                                             </div>
                                         </div>

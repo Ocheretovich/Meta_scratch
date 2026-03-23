@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { X, Package, Briefcase, Zap, Recycle, Activity, BookOpen, Brush, Star, Trophy, Layers, Hand } from 'lucide-react';
+import { X, Briefcase, Activity, Trophy, Layers } from 'lucide-react';
 import { ACTION_CARDS } from '@/data/gameConstants';
+import { RESOURCE_ICONS } from '@/data/assetManifest';
 
 interface InventoryStatsModalProps {
     isOpen: boolean;
@@ -166,7 +167,7 @@ export default function InventoryStatsModal({
                                     return {
                                         resources: res,
                                         victoryPoints: vp,
-                                        cardsCount: isMain ? actionHand.length : Object.values(opponentsData[p.id]?.cards || {}).reduce((a: any, b: any) => a + b, 0)
+                                        cardsCount: isMain ? actionHand.length : (opponentsData[p.id]?.inventory?.length || 0)
                                     };
                                 })();
                                 
@@ -190,15 +191,21 @@ export default function InventoryStatsModal({
                                         {/* Resources */}
                                         <div className="flex justify-center gap-4">
                                             <div className="flex flex-col items-center group">
-                                                <Zap size={14} className="text-blue-400 mb-1" />
-                                                <span className="text-sm font-black">{res.electricity || 0}</span>
-                                            </div>
-                                            <div className="flex flex-col items-center group">
-                                                <Package size={14} className="text-orange-400 mb-1" />
+                                                <div className="relative w-6 h-6 mb-1">
+                                                    <Image src={RESOURCE_ICONS['product']} fill className="object-contain" alt="Product" />
+                                                </div>
                                                 <span className="text-sm font-black">{res.product || 0}</span>
                                             </div>
                                             <div className="flex flex-col items-center group">
-                                                <Recycle size={14} className="text-green-400 mb-1" />
+                                                <div className="relative w-6 h-6 mb-1">
+                                                    <Image src={RESOURCE_ICONS['electricity']} fill className="object-contain" alt="Electricity" />
+                                                </div>
+                                                <span className="text-sm font-black">{res.electricity || 0}</span>
+                                            </div>
+                                            <div className="flex flex-col items-center group">
+                                                <div className="relative w-6 h-6 mb-1">
+                                                    <Image src={RESOURCE_ICONS['recycling']} fill className="object-contain" alt="Recycling" />
+                                                </div>
                                                 <span className="text-sm font-black">{res.recycling || 0}</span>
                                             </div>
                                         </div>
@@ -206,19 +213,27 @@ export default function InventoryStatsModal({
                                         {/* Values */}
                                         <div className="flex justify-center gap-4">
                                             <div className="flex flex-col items-center">
-                                                <Hand size={14} className="text-orange-500 mb-1" />
+                                                <div className="relative w-6 h-6 mb-1">
+                                                    <Image src={RESOURCE_ICONS['power']} fill className="object-contain" alt="Power" />
+                                                </div>
                                                 <span className="text-sm font-black">{res.power || 0}</span>
                                             </div>
                                             <div className="flex flex-col items-center">
-                                                <Brush size={14} className="text-pink-500 mb-1" />
+                                                <div className="relative w-6 h-6 mb-1">
+                                                    <Image src={RESOURCE_ICONS['art']} fill className="object-contain" alt="Art" />
+                                                </div>
                                                 <span className="text-sm font-black">{res.art || 0}</span>
                                             </div>
                                             <div className="flex flex-col items-center">
-                                                <BookOpen size={14} className="text-cyan-500 mb-1" />
+                                                <div className="relative w-6 h-6 mb-1">
+                                                    <Image src={RESOURCE_ICONS['knowledge']} fill className="object-contain" alt="Knowledge" />
+                                                </div>
                                                 <span className="text-sm font-black">{res.knowledge || 0}</span>
                                             </div>
                                             <div className="flex flex-col items-center">
-                                                <Star size={14} className="text-yellow-500 mb-1" />
+                                                <div className="relative w-6 h-6 mb-1">
+                                                    <Image src={RESOURCE_ICONS['fame']} fill className="object-contain" alt="Fame" />
+                                                </div>
                                                 <span className="text-sm font-black">{res.fame || 0}</span>
                                             </div>
                                         </div>

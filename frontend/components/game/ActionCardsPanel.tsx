@@ -105,7 +105,7 @@ export default function ActionCardsPanel({ cards, selectedCounts, onToggleCard, 
     };
 
     return (
-        <div className="absolute top-[10%] right-10 z-50 flex flex-col items-center animate-in slide-in-from-right-10 duration-700">
+        <div className="absolute top-[10%] right-10 z-50 flex flex-col items-center animate-in slide-in-from-right-10 duration-700 pointer-events-auto">
             <div className="flex items-center gap-4">
                 {/* Prev Button */}
                 <button

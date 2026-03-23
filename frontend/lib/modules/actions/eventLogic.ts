@@ -21,6 +21,8 @@ interface EventResult {
     resourceCost?: { type: string; amount: number };
     isTie?: boolean;
     tieParticipants?: string[];
+    winnerName?: string;
+    rewardLabel?: string; // human-readable reward description e.g. "1 Fame" or "an Action Card"
 }
 
 /**
@@ -32,7 +34,12 @@ export function resolveCompareEvent(
     playerResources: PlayerResources,
     opponentStats: { name: string; amount: number }[]
 ): EventResult {
-    const myStat = (playerResources as any)[event.targetResource!] || 0;
+    let myStat: number;
+    if (event.type === 'compare_sum' && event.targetResources) {
+        myStat = event.targetResources.reduce((sum: number, r: string) => sum + ((playerResources as any)[r] || 0), 0);
+    } else {
+        myStat = (playerResources as any)[event.targetResource!] || 0;
+    }
     const allStats = [{ name: playerName, amount: myStat }, ...opponentStats];
     
     let targetStat: number;
@@ -57,12 +64,16 @@ export function resolveCompareEvent(
             : `${playerName} lost. (Stats: ${statsStr})`;
     }
 
+    const winnerName = !isTie && winners.length === 1 ? winners[0].name : undefined;
+
     return {
         won: amIWinner,
         message,
-        reward: amIWinner && !isTie && event.reward === 'fame' ? { type: 'fame', amount: 1 } : undefined,
-        isTie, // Flag for UI to show "Resolve Conflict" button
-        tieParticipants: winners.map(w => w.name)
+        reward: !isTie && event.reward === 'fame' ? { type: 'fame', amount: 1 } : undefined,
+        isTie,
+        tieParticipants: winners.map(w => w.name),
+        winnerName,
+        rewardLabel: event.reward === 'fame' ? '1 Fame' : event.reward === 'action_card' ? 'an Action Card' : undefined,
     };
 }
 
@@ -93,11 +104,15 @@ export function resolveDiscardEvent(
             : `${playerName} discarded ${discardAmount} (Total: ${oppStr}). ${playerName} lost.`;
     }
 
+    const winnerName = !isTie && winners.length === 1 ? winners[0].name : undefined;
+
     return {
         won: amIWinner,
         message,
         resourceCost: { type: event.targetResource!, amount: discardAmount },
         isTie,
-        tieParticipants: winners.map(w => w.name)
+        tieParticipants: winners.map(w => w.name),
+        winnerName,
+        rewardLabel: event.reward === 'fame' ? '1 Fame' : event.reward === 'action_card' ? 'an Action Card' : undefined,
     };
 }

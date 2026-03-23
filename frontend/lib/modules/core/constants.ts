@@ -90,11 +90,6 @@ export const DEFAULT_RESOURCES: Record<string, number> = {
     power: 0, art: 0, knowledge: 0, fame: 0,
 };
 
-export const TEST_RESOURCES: Record<string, number> = {
-    gato: 1000,
-    product: 2, electricity: 2, recycling: 2,
-    power: 2, art: 2, knowledge: 2, fame: 2,
-};
 
 /** Max turns by player count */
 export const MAX_TURNS: Record<number, number> = {
@@ -104,7 +99,6 @@ export const MAX_TURNS: Record<number, number> = {
     5: 5,
 };
 
-export const TEST_MAX_TURNS = 5;
 
 // ─── RPS Win Matrix ───────────────────────────────────────────────
 /** Returns 'win' if a beats b, 'lose' if b beats a, 'draw' if equal */

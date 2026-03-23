@@ -91,7 +91,7 @@ export function calculatePhase4Rewards(
             if (!earnedResource) return;
 
             const isProductBet = actor.bid === 'product';
-            // End of turn rewards assume the actor "won" the spot (survived Phase 4)
+            // Robot gets 3 of the location's resource; others get 1
             const base = actor.actorType?.toLowerCase() === 'robot' ? 3 : 1;
             const finalReward = isProductBet ? base + 1 : base;
 

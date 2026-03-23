@@ -36,7 +36,8 @@ export interface Game {
     transactions: GameTransaction[];
     messages: ChatMessage[]; // New: Chat history
     startTime?: number; // New: Game start timestamp
-    isTest?: boolean;
+    isBotGame?: boolean;
+    phaseTimer?: number; // 0 = unlimited, 30/60/180 = seconds per phase
     deletedAt?: number; // Soft delete timestamp
     gameState?: {
         phaseTicker: number;
@@ -48,5 +49,11 @@ export interface Game {
         eventDeck?: string[];
         actionDeck?: string[];
         currentEventId?: string;
+        currentPhase?: number;
+        turn?: number;
+        disabledLocations?: string[];
+        rpsChoices?: Record<string, Record<string, { choice: string; bid: string | null; submittedAt: number }>>;
+        activePlayerIds?: string[];
+        isTieBreaker?: boolean;
     };
 }

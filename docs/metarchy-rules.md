@@ -193,7 +193,7 @@ This document describes the exact flow of turns and phases currently implemented
 - 2 players (1 vs 1): ends after 5 turns
 - 3 players (1 vs 1 vs 1): ends after 5 turns
 - 4 players (2 vs. 2): ends after 6 turns
-- Test game with bots ends after 5 turns
+- Game vs. Bots ends after 5 turns
 
 - Turn 1: Skips Phase 1 (Event Phase) and starts directly at Phase 2 (Distribution Phase).
 - Turn 2+: Starts at Phase 1 (Event Phase).
@@ -220,7 +220,7 @@ Resolution:
 
 Player Action: The player clicks an Actor, chooses a valid Location on the Map, and selects an Argument Token (Rock/Paper/Scissors). They may optionally add a Bet (Product, Energy, Recycle). After distributing all their Actors by Locations, the player must click the "Next Phase" button. If other players still didn't finish with the distribution of Actors by the Locations, the player's button changes to "WAITING FOR OTHERS..." until the other players finish.
 
-Bots Actions (Only in case of test game, when player plays agains bots): Bots automatically place their actors in the background. The player's button changes to "WAITING FOR OTHERS..." until the bots finish.
+Bots Actions (Game vs. Bots): Bots automatically place their actors in the background. The player's button changes to "WAITING FOR OTHERS..." until the bots finish.
 
 Phase Transition: Once all players (humans and bots) have committed their turns, the game advances to Phase 3.
 

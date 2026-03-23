@@ -1,7 +1,6 @@
 import Image from 'next/image';
 import { useTooltip } from '@/context/TooltipContext';
 import { RESOURCE_ICONS } from '@/data/assetManifest';
-import { Hand } from 'lucide-react';
 
 interface GameResourcesProps {
     resources: {
@@ -95,24 +94,7 @@ export default function GameResources({
                 {renderSlot(118.15, 3.5, RESOURCE_ICONS['fame'], resources.fame, "Fame")}
 
                 {/* Power (Orange) x=189.15 y=4.5 */}
-                <div
-                    className={`absolute flex items-center justify-center gap-1 z-10 pointer-events-auto transition-all ${isStep3 && exchangeStep === 1 ? 'cursor-pointer hover:scale-110 active:scale-95 ring-2 ring-yellow-400/50 rounded-lg bg-yellow-400/10' : 'cursor-help'}`}
-                    style={{ left: '189.15px', top: '4.5px', width: '30px', height: '30px' }}
-                    onMouseEnter={() => showTooltip("Power")}
-                    onMouseLeave={hideTooltip}
-                    onClick={() => {
-                        if (isStep3 && exchangeStep === 1 && onResourceClick) {
-                            onResourceClick("power");
-                        }
-                    }}
-                >
-                    <div className="relative w-full h-full flex items-center justify-center">
-                        <Hand size={18} className="text-orange-500" />
-                    </div>
-                    <div className="absolute left-[32px] flex flex-col justify-center h-full w-[40px]">
-                        <span className="text-white font-bold text-sm leading-none drop-shadow-md">{resources.power}</span>
-                    </div>
-                </div>
+                {renderSlot(189.15, 4.5, RESOURCE_ICONS['power'], resources.power, "Power")}
 
                 {/* Art (Magenta) x=260.15 y=4.5 */}
                 {renderSlot(260.15, 4.5, RESOURCE_ICONS['art'], resources.art, "Art")}

@@ -65,8 +65,8 @@ export default function LobbyPage() {
     useEffect(() => {
         if (!game || simulationStarted.current || game.status !== 'waiting') return;
 
-        // ONLY trigger simulation if it's explicitly a test game
-        if (!game.isTest) return;
+        // ONLY trigger simulation if it's a bot game
+        if (!game.isBotGame) return;
 
         simulationStarted.current = true;
 

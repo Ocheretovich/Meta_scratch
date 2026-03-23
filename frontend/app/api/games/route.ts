@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { id, roomName, maxPlayers, hostPlayer, isPrivate, isTest } = body;
+        const { id, roomName, maxPlayers, hostPlayer, isPrivate, isBotGame } = body;
 
         if (!roomName || !hostPlayer) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -40,18 +40,28 @@ export async function POST(request: NextRequest) {
             roomId: roomName,
             status: 'waiting',
             isPrivate: !!isPrivate,
-            isTest: !!isTest,
+            isBotGame: !!isBotGame,
+            phaseTimer: body.phaseTimer || 0, // 0 = unlimited, 30/60/180 = seconds per phase
             createdAt: Date.now(),
             players: players,
-            maxPlayers: isTest ? 3 : (maxPlayers || 4),
+            maxPlayers: isBotGame ? 3 : (maxPlayers || 4),
             bidAmount: 0,
-            logs: [formatLog(displayId, `GAME CREATED BY ${hostPlayer.name}${isTest ? ' [TEST MODE]' : ''}`)],
+            logs: [formatLog(displayId, `GAME CREATED BY ${hostPlayer.name}${isBotGame ? ' [VS BOTS]' : ''}`)],
             transactions: [],
             messages: [],
             gameState: {
                 phaseTicker: 0,
                 playerReady: {},
                 stagedActors: {},
+                currentPhase: 2, // Turn 1 starts at Phase 2 (Distribution)
+                turn: 1,
+                disabledLocations: [],
+                playerResources: {
+                    [hostPlayer.citizenId || hostPlayer.address || hostPlayer.name]: {
+                        gato: 1000, product: 1, electricity: 1, recycling: 1,
+                        power: 0, art: 0, knowledge: 0, fame: 0
+                    }
+                },
                 eventDeck: [...EVENTS].map(e => e.id).sort(() => Math.random() - 0.5),
                 actionDeck: [...ACTION_CARDS].map(c => c.id).sort(() => Math.random() - 0.5)
             }

@@ -1,6 +1,29 @@
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+
+const PLAYER_STORAGE_KEY = 'metarchy_player';
+
+function loadPlayerFromStorage(): Player | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        const stored = localStorage.getItem(PLAYER_STORAGE_KEY);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed.name && (parsed.citizenId || parsed.address)) return parsed;
+        }
+    } catch {}
+    return null;
+}
+
+function savePlayerToStorage(player: Player) {
+    if (typeof window === 'undefined') return;
+    try {
+        if (player.name || (player.citizenId && player.citizenId !== '0000') || player.address) {
+            localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(player));
+        }
+    } catch {}
+}
 
 // Define the shape of the game state
 interface Player {
@@ -34,7 +57,7 @@ interface GameState {
     setCitizenId: (id: string) => void;
     setPlayerAvatar: (avatar: string) => void;
     setPlayer: (player: Player) => void;
-    createRoom: (name: string, maxPlayers: number, isPrivate: boolean, id?: string, isTest?: boolean) => Promise<any>;
+    createRoom: (name: string, maxPlayers: number, isPrivate: boolean, id?: string, isBotGame?: boolean, phaseTimer?: number) => Promise<any>;
     joinRoom: (gameId: string, player: Player) => Promise<void>;
     leaveRoom: () => void;
     eventDeck: any[];
@@ -79,9 +102,14 @@ const GameStateContext = createContext<GameState>(initialState);
 
 export function GameStateProvider({ children }: { children: ReactNode }) {
     const [resources, setResources] = useState(initialState.resources);
-    const [player, setPlayer] = useState(initialState.player);
+    const [player, setPlayer] = useState<Player>(() => loadPlayerFromStorage() || initialState.player);
     const [lobby, setLobby] = useState(initialState.lobby);
     const [eventDeck, setEventDeck] = useState<any[]>(initialState.eventDeck);
+
+    // Persist player identity to localStorage whenever it changes
+    useEffect(() => {
+        savePlayerToStorage(player);
+    }, [player]);
 
     // updateResource: adds `delta` to the resource (positive or negative).
     // The resource can never go below 0.
@@ -138,12 +166,12 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
         return () => clearInterval(interval);
     }, []);
 
-    const createRoom = useCallback(async (name: string, maxPlayers: number, isPrivate: boolean, id?: string, isTest?: boolean) => {
+    const createRoom = useCallback(async (name: string, maxPlayers: number, isPrivate: boolean, id?: string, isBotGame?: boolean, phaseTimer?: number) => {
         try {
             const res = await fetch('/api/games', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, roomName: name, maxPlayers, hostPlayer: player, isPrivate, isTest })
+                body: JSON.stringify({ id, roomName: name, maxPlayers, hostPlayer: player, isPrivate, isBotGame, phaseTimer: phaseTimer || 0 })
             });
 
             if (res.ok) {

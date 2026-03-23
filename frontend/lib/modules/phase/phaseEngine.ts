@@ -5,14 +5,13 @@
  */
 
 import type { TurnState, PhaseNumber, Phase3Step } from '@/lib/modules/core/types';
-import { MAX_TURNS, TEST_MAX_TURNS } from '@/lib/modules/core/constants';
+import { MAX_TURNS } from '@/lib/modules/core/constants';
 
 interface PhaseAdvanceInput {
     turn: number;
     phase: PhaseNumber;
     p3Step: Phase3Step;
     playerCount: number;
-    isTest?: boolean;
     hasTie?: boolean; // New flag for tie-breaker check
 }
 
@@ -36,9 +35,8 @@ interface PhaseAdvanceResult {
 /**
  * Calculates the max turns for the current game.
  */
-export function getMaxTurns(playerCount: number, isTest?: boolean): number {
-    if (isTest) return TEST_MAX_TURNS;
-    return MAX_TURNS[playerCount] || 7;
+export function getMaxTurns(playerCount: number): number {
+    return MAX_TURNS[playerCount] || 5;
 }
 
 /**
@@ -46,8 +44,8 @@ export function getMaxTurns(playerCount: number, isTest?: boolean): number {
  * Pure function: takes current state, returns new state + side effect flags.
  */
 export function advancePhase(input: PhaseAdvanceInput): PhaseAdvanceResult {
-    const { turn, phase, p3Step, playerCount, isTest } = input;
-    const maxTurns = getMaxTurns(playerCount, isTest);
+    const { turn, phase, p3Step, playerCount } = input;
+    const maxTurns = getMaxTurns(playerCount);
     const logs: string[] = [];
 
     let result: PhaseAdvanceResult = {

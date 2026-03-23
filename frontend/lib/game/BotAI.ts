@@ -1,4 +1,188 @@
-import { LOCATIONS, ALLOWED_MOVES } from '@/data/gameConstants';
+import { LOCATIONS, ALLOWED_MOVES, ACTION_CARDS } from '@/data/gameConstants';
+import { ActionCardInstance } from '@/lib/modules/core/types';
+import { calculateVictoryPoints } from '@/lib/modules/resources/resourceManager';
+
+// ─── Bot Inventory Helpers ────────────────────────────────────────
+
+/** Get a bot's action card inventory from opponentsData */
+export const getBotInventory = (opponentsData: any, botId: string): ActionCardInstance[] => {
+    return opponentsData?.[botId]?.inventory || [];
+};
+
+/** Add a card to bot inventory */
+export const addCardToBotInventory = (
+    setOpponentsData: (cb: (prev: any) => any) => void,
+    botId: string,
+    card: ActionCardInstance
+) => {
+    setOpponentsData((prev: any) => {
+        const od = prev[botId];
+        if (!od) return prev;
+        const inventory = [...(od.inventory || []), card];
+        return { ...prev, [botId]: { ...od, inventory } };
+    });
+};
+
+/** Remove used cards from bot inventory and add to discard pile */
+const consumeBotCards = (
+    setOpponentsData: (cb: (prev: any) => any) => void,
+    botId: string,
+    cardIds: string[]
+) => {
+    setOpponentsData((prev: any) => {
+        const od = prev[botId];
+        if (!od) return prev;
+        const inventory = (od.inventory || []).filter((c: ActionCardInstance) => !cardIds.includes(c.id));
+        const discarded = (od.inventory || []).filter((c: ActionCardInstance) => cardIds.includes(c.id));
+        const discardPile = [...(od.discardPile || []), ...discarded];
+        return { ...prev, [botId]: { ...od, inventory, discardPile } };
+    });
+};
+
+// ─── Bot Card Selection Logic (Phase 3 Step 0) ───────────────────
+
+interface BotCardDecision {
+    blockCards: ActionCardInstance[];
+    relocationCards: ActionCardInstance[];
+    exchangeCards: ActionCardInstance[];
+    steps: number[];
+}
+
+/**
+ * Decides which action cards a bot will play this turn.
+ * Rules:
+ * - Block location cards: 100% play (bot avoids sending actors there in Phase 2)
+ * - Change Values cards: 100% play
+ * - Relocation cards: 1 card = 70%, 2 cards = 100%+50%, 3 cards = 100%+70%+50%
+ * - If bot has both Block + Relocation: Relocation becomes 100% (to rescue own actor from disabled location)
+ */
+export const decideBotCardSelection = (
+    botInventory: ActionCardInstance[],
+    hasBlockCard: boolean
+): BotCardDecision => {
+    const blockCards = botInventory.filter(c => c.type === 'turn off location' && c.disables);
+    const relocationAll = botInventory.filter(c => (c.title || '').toLowerCase().includes('relocation'));
+    const exchangeCards = botInventory.filter(c =>
+        (c.title || '').toLowerCase().includes('change') || (c.title || '').toLowerCase().includes('exchange')
+    );
+
+    // Block cards: always play all
+    const selectedBlock = [...blockCards];
+
+    // Exchange cards: always play all
+    const selectedExchange = [...exchangeCards];
+
+    // Relocation cards: probability-based
+    const relocProbs = hasBlockCard || selectedBlock.length > 0
+        ? [1.0, 0.7, 0.5]   // If has block card, first relocation is 100%
+        : [0.7, 0.5, 0.3];  // Default probabilities
+
+    // Override: if bot has 2+ relocation cards, first is always 100%
+    if (relocationAll.length >= 2) {
+        relocProbs[0] = 1.0;
+    }
+
+    const selectedRelocation: ActionCardInstance[] = [];
+    for (let i = 0; i < relocationAll.length && i < relocProbs.length; i++) {
+        if (Math.random() < relocProbs[i]) {
+            selectedRelocation.push(relocationAll[i]);
+        }
+    }
+
+    // Build steps array
+    const steps: number[] = [];
+    if (selectedBlock.length > 0) steps.push(1);
+    if (selectedRelocation.length > 0) steps.push(2);
+    if (selectedExchange.length > 0) steps.push(3);
+
+    return { blockCards: selectedBlock, relocationCards: selectedRelocation, exchangeCards: selectedExchange, steps };
+};
+
+// ─── Bot Phase 2: Block-Aware Distribution ───────────────────────
+
+/**
+ * Get locations the bot plans to block (from its block cards).
+ * Used in Phase 2 to avoid sending own actors to those locations.
+ */
+export const getBotBlockedLocations = (botInventory: ActionCardInstance[]): string[] => {
+    return botInventory
+        .filter(c => c.type === 'turn off location' && c.disables)
+        .map(c => c.disables!);
+};
+
+// ─── Bot Phase 3 Step 3: Smart Exchange Logic ────────────────────
+
+/**
+ * Decides the best exchange for a bot to maximize its VP and minimize the leader's VP.
+ * Returns { sourceVal, targetPlayerId, targetVal } or null if no valid exchange.
+ */
+const decideBotExchange = (
+    botId: string,
+    botResources: any,
+    allPlayers: { id: string; name: string; resources: any }[],
+    localPlayerId: string,
+    localResources: any
+): { sourceVal: string; targetPlayerId: string; targetVal: string } | null => {
+    const valueTypes = ['power', 'art', 'knowledge'];
+
+    // Build full player list with resources
+    const everyone = [
+        { id: localPlayerId, resources: localResources },
+        ...allPlayers.filter(p => p.id !== botId).map(p => ({ id: p.id, resources: p.resources }))
+    ];
+
+    const botVP = calculateVictoryPoints(botResources);
+
+    // Find the leader (not the bot itself)
+    let leaderId = '';
+    let leaderVP = -1;
+    for (const p of everyone) {
+        const vp = calculateVictoryPoints(p.resources);
+        if (vp > leaderVP) {
+            leaderVP = vp;
+            leaderId = p.id;
+        }
+    }
+
+    // Try all possible exchanges and pick the one that maximizes bot VP gain
+    // while minimizing the leader's VP
+    let bestExchange: { sourceVal: string; targetPlayerId: string; targetVal: string } | null = null;
+    let bestScore = -Infinity;
+
+    for (const give of valueTypes) {
+        if ((botResources[give] || 0) <= 0) continue;
+
+        for (const target of everyone) {
+            for (const take of valueTypes) {
+                if (take === give) continue;
+                if (((target.resources as any)?.[take] || 0) <= 0) continue;
+
+                // Simulate the exchange
+                const newBotRes = { ...botResources, [give]: botResources[give] - 1, [take]: (botResources[take] || 0) + 1 };
+                const newTargetRes = { ...target.resources, [take]: (target.resources as any)[take] - 1, [give]: ((target.resources as any)[give] || 0) + 1 };
+
+                const newBotVP = calculateVictoryPoints(newBotRes);
+                const newTargetVP = calculateVictoryPoints(newTargetRes);
+                const oldTargetVP = calculateVictoryPoints(target.resources);
+
+                // Score: maximize bot VP gain, prefer hurting the leader
+                let score = (newBotVP - botVP) * 10;
+                if (target.id === leaderId) {
+                    score += (oldTargetVP - newTargetVP) * 5;
+                }
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestExchange = { sourceVal: give, targetPlayerId: target.id, targetVal: take };
+                }
+            }
+        }
+    }
+
+    return bestExchange;
+};
+
+// ─── Main Bot Phase 3 Actions ────────────────────────────────────
 
 /**
  * Simulates bot actions during Phase 3 (Action Cards Phase).
@@ -13,59 +197,196 @@ export const triggerBotPhase3Actions = async (
     setPlacedActors: (cb: (prev: any[]) => any[]) => void,
     setOpponentsReady: (ready: boolean) => void,
     setPendingRelocations?: (cb: (prev: any[]) => any[]) => void,
-    botActionCommits?: Record<string, number[]>
+    botActionCommits?: Record<string, number[]>,
+    opponentsData?: any,
+    setOpponentsData?: (cb: (prev: any) => any) => void,
+    localPlayerId?: string,
+    localResources?: any,
+    botCardSelections?: Record<string, BotCardDecision>
 ) => {
-    if (!game?.isTest) return; // Only process bots in test mode
+    if (!game?.isBotGame) return;
 
     for (const opp of opponents) {
-        // Bots only play action cards if they actually have them.
-        // In a normal game start, bots have NO action cards (same rule as players).
-        // botActionCommits tracks which steps bots have cards for (determined at p3Step=0).
         const botCommits = botActionCommits?.[opp.id] || [];
         const botHasCardForStep = botCommits.includes(step);
+        const selection = botCardSelections?.[opp.id];
 
-        // Only act if bot committed to this step (i.e., had a card for it)
-        if (botHasCardForStep && Math.random() < 0.5) {
-            if (step === 1) { // Stopping Locations — only if bot played a Block card
-                const targetLoc = LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
+        if (!botHasCardForStep) {
+            await new Promise(r => setTimeout(r, 300));
+            continue;
+        }
+
+        if (step === 1 && selection?.blockCards) {
+            // Step 1: Block Locations — execute all selected block cards
+            for (const card of selection.blockCards) {
+                if (!card.disables) continue;
                 setDisabledLocations(prev => {
-                    if (prev.includes(targetLoc.id)) return prev;
-                    return [...prev, targetLoc.id];
+                    if (prev.includes(card.disables!)) return prev;
+                    return [...prev, card.disables!];
                 });
-                await addLog(`${opp.name} activated Construction Work - ${targetLoc.name.toUpperCase()} is now DISABLED`);
-            } else if (step === 2) { // Relocation — only if bot played a Relocation card
-                const botActors = placedActors.filter(a => a.playerId === opp.id);
-                if (botActors.length > 0) {
-                    const actorToMove = botActors[Math.floor(Math.random() * botActors.length)];
-                    const allowed = ALLOWED_MOVES[actorToMove.actorType] || [];
-                    const targetLoc = allowed[Math.floor(Math.random() * allowed.length)] || actorToMove.locId;
+                const locName = LOCATIONS.find(l => l.id === card.disables)?.name || card.disables;
+                await addLog(`${opp.name} activated ${card.title} — ${locName.toUpperCase()} is now DISABLED`);
+            }
+            // Consume used block cards
+            if (setOpponentsData) {
+                consumeBotCards(setOpponentsData, opp.id, selection.blockCards.map(c => c.id));
+            }
+        } else if (step === 2 && selection?.relocationCards) {
+            // Step 2: Relocation
+            const botActors = placedActors.filter(a => a.playerId === opp.id);
+
+            for (const card of selection.relocationCards) {
+                // Priority: relocate own actor from a disabled location
+                let actorToMove: any = null;
+                let targetLocId: string | null = null;
+
+                // Check if any own actor is in a disabled location
+                const disabledActors = botActors.filter(a => {
+                    // Get current disabled locations from the state
+                    const locDisabled = selection.blockCards.some(bc => bc.disables === a.locId);
+                    return locDisabled;
+                });
+
+                if (disabledActors.length > 0) {
+                    actorToMove = disabledActors[0];
+                    // Find valid location with fewest actors of same type
+                    const allowed = ALLOWED_MOVES[actorToMove.actorType as keyof typeof ALLOWED_MOVES] || [];
+                    const validLocs = allowed.filter((lid: string) =>
+                        lid !== actorToMove.locId &&
+                        !selection.blockCards.some(bc => bc.disables === lid)
+                    );
+                    if (validLocs.length > 0) {
+                        // Pick location with fewest actors of same type
+                        let minCount = Infinity;
+                        for (const lid of validLocs) {
+                            const count = placedActors.filter(a => a.locId === lid && a.actorType === actorToMove.actorType).length;
+                            if (count < minCount) {
+                                minCount = count;
+                                targetLocId = lid;
+                            }
+                        }
+                    }
+                }
+
+                if (!actorToMove) {
+                    // No actor in disabled location — pick random own actor
+                    if (botActors.length > 0) {
+                        actorToMove = botActors[Math.floor(Math.random() * botActors.length)];
+                        const allowed = ALLOWED_MOVES[actorToMove.actorType as keyof typeof ALLOWED_MOVES] || [];
+                        const validLocs = allowed.filter((lid: string) =>
+                            lid !== actorToMove.locId &&
+                            !selection.blockCards.some(bc => bc.disables === lid)
+                        );
+                        if (validLocs.length > 0) {
+                            targetLocId = validLocs[Math.floor(Math.random() * validLocs.length)];
+                        }
+                    }
+                }
+
+                if (actorToMove && targetLocId) {
+                    const fromLoc = LOCATIONS.find(l => l.id === actorToMove.locId)?.name || actorToMove.locId;
+                    const toLoc = LOCATIONS.find(l => l.id === targetLocId)?.name || targetLocId;
+
+                    setPlacedActors(prev => prev.map(a =>
+                        a.actorId === actorToMove.actorId ? { ...a, locId: targetLocId } : a
+                    ));
 
                     if (setPendingRelocations) {
                         setPendingRelocations(prev => [...prev, {
                             playerId: opp.id,
                             actorId: actorToMove.actorId,
-                            targetLocId: targetLoc
+                            targetLocId
                         }]);
                     }
-                }
-            } else if (step === 3) { // Exchange — only if bot played a Change Values card
-                const resTypes = ['power', 'art', 'knowledge'];
-                const give = resTypes[Math.floor(Math.random() * 3)];
-                let take = resTypes[Math.floor(Math.random() * 3)];
-                while (take === give) take = resTypes[Math.floor(Math.random() * 3)];
 
-                await addLog(`${opp.name} used Change Values: exchanged ${give.toUpperCase()} for ${take.toUpperCase()}`);
+                    await addLog(`${opp.name} relocated ${actorToMove.name || actorToMove.actorType} from ${fromLoc.toUpperCase()} to ${toLoc.toUpperCase()}`);
+                }
+            }
+            // Consume used relocation cards
+            if (setOpponentsData) {
+                consumeBotCards(setOpponentsData, opp.id, selection.relocationCards.map(c => c.id));
+            }
+        } else if (step === 3 && selection?.exchangeCards) {
+            // Step 3: Change Values — smart exchange
+            const botRes = opponentsData?.[opp.id]?.resources || {};
+
+            for (const card of selection.exchangeCards) {
+                const allPlayersForExchange = opponents
+                    .filter(o => o.id !== opp.id)
+                    .map(o => ({
+                        id: o.id,
+                        name: o.name,
+                        resources: opponentsData?.[o.id]?.resources || {}
+                    }));
+
+                const exchange = decideBotExchange(
+                    opp.id,
+                    botRes,
+                    allPlayersForExchange,
+                    localPlayerId || '',
+                    localResources || {}
+                );
+
+                if (exchange) {
+                    const targetName = opponents.find(o => o.id === exchange.targetPlayerId)?.name
+                        || (exchange.targetPlayerId === localPlayerId ? 'You' : 'Player');
+
+                    // Apply the exchange
+                    if (setOpponentsData) {
+                        setOpponentsData((prev: any) => {
+                            const next = { ...prev };
+
+                            // Bot loses sourceVal, gains targetVal
+                            const botOd = next[opp.id];
+                            if (botOd) {
+                                const botR = { ...botOd.resources };
+                                botR[exchange.sourceVal] = Math.max(0, (botR[exchange.sourceVal] || 0) - 1);
+                                botR[exchange.targetVal] = (botR[exchange.targetVal] || 0) + 1;
+                                next[opp.id] = { ...botOd, resources: botR };
+                            }
+
+                            // Target loses targetVal, gains sourceVal
+                            if (exchange.targetPlayerId !== localPlayerId) {
+                                const targetOd = next[exchange.targetPlayerId];
+                                if (targetOd) {
+                                    const targetR = { ...targetOd.resources };
+                                    targetR[exchange.targetVal] = Math.max(0, (targetR[exchange.targetVal] || 0) - 1);
+                                    targetR[exchange.sourceVal] = (targetR[exchange.sourceVal] || 0) + 1;
+                                    next[exchange.targetPlayerId] = { ...targetOd, resources: targetR };
+                                }
+                            }
+
+                            return next;
+                        });
+                    }
+
+                    // If target is the local player, update their resources too
+                    // (This is handled by the caller — we just log it)
+
+                    await addLog(`${opp.name} used Change Values: exchanged ${exchange.sourceVal.toUpperCase()} for ${targetName}'s ${exchange.targetVal.toUpperCase()}`);
+
+                    // Update local botRes for next card iteration
+                    botRes[exchange.sourceVal] = Math.max(0, (botRes[exchange.sourceVal] || 0) - 1);
+                    botRes[exchange.targetVal] = (botRes[exchange.targetVal] || 0) + 1;
+                }
+            }
+            // Consume used exchange cards
+            if (setOpponentsData) {
+                consumeBotCards(setOpponentsData, opp.id, selection.exchangeCards.map(c => c.id));
             }
         }
+
         await new Promise(r => setTimeout(r, 800));
     }
-    // Signal that all bots are done with this step
+
     setOpponentsReady(true);
 };
 
+// ─── Bot Phase 4: Resolve Bot-Only Conflicts ─────────────────────
+
 /**
-     * Resolves conflicts where ONLY bots are present in a location (Phase 4).
-     */
+ * Resolves conflicts where ONLY bots are present in a location (Phase 4).
+ */
 export const resolveBotOnlyConflicts = async (
     placedActors: any[],
     disabledLocations: string[],
@@ -89,7 +410,10 @@ export const resolveBotOnlyConflicts = async (
         if (resolvedConflicts.includes(key)) continue;
         if (actors.some(a => a.playerId === localPlayerId)) continue;
 
-        const [locId, actorType] = key.split('_');
+        // Split on LAST underscore only since locId can contain underscores (e.g., 'power_plant')
+        const lastUnderscoreIdx = key.lastIndexOf('_');
+        const locId = key.substring(0, lastUnderscoreIdx);
+        const actorType = key.substring(lastUnderscoreIdx + 1);
         const locDef = LOCATIONS.find(l => l.id === locId);
         const realLocName = locDef?.name || locId.toUpperCase();
 
@@ -99,19 +423,24 @@ export const resolveBotOnlyConflicts = async (
             const actorTypeName = bot.actorType.charAt(0).toUpperCase() + bot.actorType.slice(1);
 
             let resource = '';
+            let amount = 1;
             if (bot.actorType === 'politician') resource = 'Power';
             else if (bot.actorType === 'scientist') resource = 'Knowledge';
             else if (bot.actorType === 'artist') resource = 'Art';
-            else if (bot.actorType === 'robot') resource = (locDef?.resource || 'product').charAt(0).toUpperCase() + (locDef?.resource || 'product').slice(1);
+            else if (bot.actorType === 'robot') {
+                // Robot wins → 3 of the location's resource
+                resource = (locDef?.resource || 'product').charAt(0).toUpperCase() + (locDef?.resource || 'product').slice(1);
+                amount = 3;
+            }
 
-            await addLog(`${botName}'s ${actorTypeName} has no rivals at ${realLocName}. They secured 1 ${resource}!`);
+            await addLog(`${botName}'s ${actorTypeName} has no rivals at ${realLocName}. They secured ${amount} ${resource}!`);
 
             setOpponentsData(prev => {
                 const next = { ...prev };
                 if (!next[bot.playerId]) return prev;
                 const res = { ...next[bot.playerId].resources } as any;
                 const resKey = resource.toLowerCase();
-                res[resKey] = (res[resKey] || 0) + 1;
+                res[resKey] = (res[resKey] || 0) + amount;
                 next[bot.playerId] = { ...next[bot.playerId], resources: res };
                 return next;
             });
@@ -139,38 +468,43 @@ export const resolveBotOnlyConflicts = async (
                 const winnerName = dynamicPlayers.find(p => p.id === winner.playerId)?.name || 'Bot';
 
                 let resource = '';
+                let amount = 1;
                 if (winner.actorType === 'politician') resource = 'Power';
                 else if (winner.actorType === 'scientist') resource = 'Knowledge';
                 else if (winner.actorType === 'artist') resource = 'Art';
-                else if (winner.actorType === 'robot') resource = (locDef?.resource || 'product').charAt(0).toUpperCase() + (locDef?.resource || 'product').slice(1);
+                else if (winner.actorType === 'robot') {
+                    // Robot wins → 3 of the location's resource
+                    resource = (locDef?.resource || 'product').charAt(0).toUpperCase() + (locDef?.resource || 'product').slice(1);
+                    amount = 3;
+                }
 
-                await addLog(`${winnerName}'s ${actorTypeName} WON at ${realLocName} and secured 1 ${resource}!`);
+                await addLog(`${winnerName}'s ${actorTypeName} WON at ${realLocName} and secured ${amount} ${resource}!`);
 
                 setOpponentsData(prev => {
                     const next = { ...prev };
                     if (!next[winner.playerId]) return prev;
                     const res = { ...next[winner.playerId].resources } as any;
-                    if (resource) {
-                        const resKey = resource.toLowerCase();
-                        res[resKey] = (res[resKey] || 0) + 1;
-                        next[winner.playerId] = { ...next[winner.playerId], resources: res };
-                    }
+                    const resKey = resource.toLowerCase();
+                    res[resKey] = (res[resKey] || 0) + amount;
+                    next[winner.playerId] = { ...next[winner.playerId], resources: res };
                     return next;
                 });
             }
         }
-        // Mark as resolved ONLY if p1 not involved
         setResolvedConflicts(prev => [...prev, key]);
         await new Promise(r => setTimeout(r, 800));
     }
 };
 
+// ─── Bot Phase 2: Placement ──────────────────────────────────────
+
 /**
  * Triggers initial opponent token placement (Phase 2).
+ * Now aware of block cards — bots avoid sending actors to locations they plan to block.
  */
 export const triggerOpponentPlacements = async (
     game: any,
-    _deprecated_AUTO_PLACEMENTS: any[], // Keeping signature for compatibility but ignoring
+    _deprecated_AUTO_PLACEMENTS: any[],
     PLAYERS: any[],
     setOpponentsReady: (ready: boolean) => void,
     setPlacedActors: (cb: (prev: any[]) => any[]) => void,
@@ -178,9 +512,9 @@ export const triggerOpponentPlacements = async (
     addLog: (msg: string) => Promise<void>,
     opponentsData: any
 ) => {
-    if (!game || !game.isTest) return; 
+    if (!game || !game.isBotGame) return;
 
-    setOpponentsReady(false); 
+    setOpponentsReady(false);
     await new Promise(r => setTimeout(r, 1500));
 
     const botIdentities = [
@@ -199,59 +533,52 @@ export const triggerOpponentPlacements = async (
     const rspTokens = ['rock', 'paper', 'scissors'];
     const bidTypes = ['product', 'electricity', 'recycling'];
 
-    // Get bots actually in the game
     const botsInGame = game.players.filter((p: any) => (p.citizenId || '').startsWith('bot-'));
-    
-    // If no bots in game players (test mode fallback), use botIdentities
     const activeBots = botsInGame.length > 0 ? botsInGame : botIdentities;
 
     for (const bot of activeBots) {
         const botId = bot.citizenId || bot.id;
         const botName = bot.name;
 
-        // Shuffle arguments so they are assigned randomly to actors
+        // Get bot's block cards to know which locations to avoid
+        const botInventory = getBotInventory(opponentsData, botId);
+        const locationsToAvoid = getBotBlockedLocations(botInventory);
+
         const availableArgs = [...rspTokens, 'dummy'].sort(() => Math.random() - 0.5);
-        
-        // Get actual bot resources from opponentsData
         const botResources = opponentsData[botId]?.resources || {};
 
         for (let i = 0; i < actorDefinitions.length; i++) {
             const def = actorDefinitions[i];
-            
-            // Respect ALLOWED_MOVES for each actor type
+
             const allowedIds = ALLOWED_MOVES[def.type as keyof typeof ALLOWED_MOVES] || [];
-            const validLocs = LOCATIONS.filter(l => allowedIds.includes(l.id));
+            // Filter out locations the bot plans to block
+            const validLocIds = allowedIds.filter((lid: string) => !locationsToAvoid.includes(lid));
+            // Fallback: if all valid locations are blocked, use any allowed location
+            const finalLocIds = validLocIds.length > 0 ? validLocIds : allowedIds;
+            const validLocs = LOCATIONS.filter(l => finalLocIds.includes(l.id));
             const loc = validLocs[Math.floor(Math.random() * validLocs.length)] || LOCATIONS[0];
-            
-            const token = availableArgs.pop()!; // Take one unique argument (R, P, S, or Dummy)
-            
-            // Smart Bidding Logic:
-            // 1. Specialized Dummy Rules:
-            //    - Robot Dummy -> DRAW (recycling)
-            //    - Other Dummy -> LOSE (electricity)
-            // 2. Probabilistic choice (50% chance to skip even if resources exist)
-            // 3. Must have resources
+
+            const token = availableArgs.pop()!;
+
             let bid = null;
             const skipBidProb = Math.random() < 0.5;
 
             if (!skipBidProb) {
                 if (token === 'dummy') {
-                    // Specialized Dummy Logic
                     const targetBid = def.type === 'robot' ? 'recycling' : 'electricity';
                     if ((botResources[targetBid] || 0) > 0) {
                         bid = targetBid;
                     }
                 } else {
-                    // Non-Dummy: Random valid bid
                     const possibleBids = bidTypes.filter(bt => (botResources[bt] || 0) > 0);
                     if (possibleBids.length > 0) {
                         bid = possibleBids[Math.floor(Math.random() * possibleBids.length)];
                     }
                 }
             }
-            
+
             const deterministicId = `${botId}_${def.type}`;
-            
+
             const action = {
                 actorId: deterministicId,
                 playerId: botId,
@@ -270,7 +597,6 @@ export const triggerOpponentPlacements = async (
                 return [...filtered, action];
             });
 
-            // Deduction logic for bidding
             if (bid) {
                 setOpponentsData(prev => {
                     const next = { ...prev };
@@ -286,10 +612,59 @@ export const triggerOpponentPlacements = async (
             const tokenIcon = token === 'dummy' ? '🎭 DUMMY' : token.toUpperCase();
             await addLog(`${botName} placed ${def.name} with ${tokenIcon} to ${loc.id.toUpperCase()}${betText}`);
 
-            await new Promise(r => setTimeout(r, 600)); 
+            await new Promise(r => setTimeout(r, 600));
         }
     }
 
     await new Promise(r => setTimeout(r, 600));
     setOpponentsReady(true);
+};
+
+// ─── Bot Market Phase: Buy Action Cards ──────────────────────────
+
+/**
+ * Bots try to buy action cards during Market Phase.
+ * 60% chance to buy if they have 1 Product + 1 Electricity + 1 Recycling.
+ */
+export const botMarketBuy = (
+    opponentsData: any,
+    opponents: any[],
+    setOpponentsData: (cb: (prev: any) => any) => void,
+    addLog: (msg: string) => Promise<void>,
+    setLocalActionDeckCount?: (cb: (prev: number | null) => number | null) => void
+) => {
+    for (const opp of opponents) {
+        const botRes = opponentsData[opp.id]?.resources || {};
+        const canBuy = (botRes.product || 0) >= 1 && (botRes.electricity || 0) >= 1 && (botRes.recycling || 0) >= 1;
+
+        if (canBuy && Math.random() < 0.6) {
+            // Pick a random card from the deck
+            const botInv = getBotInventory(opponentsData, opp.id);
+            const usedIds = new Set(botInv.map((c: ActionCardInstance) => c.id));
+            const availableCards = ACTION_CARDS.filter(c => !usedIds.has(c.id));
+
+            if (availableCards.length > 0) {
+                const drawn = availableCards[Math.floor(Math.random() * availableCards.length)];
+                const instance = { ...drawn, instanceId: `${drawn.id}_${Date.now()}` } as ActionCardInstance;
+
+                // Deduct resources and add card
+                setOpponentsData((prev: any) => {
+                    const od = prev[opp.id];
+                    if (!od) return prev;
+                    const res = { ...od.resources };
+                    res.product = Math.max(0, (res.product || 0) - 1);
+                    res.electricity = Math.max(0, (res.electricity || 0) - 1);
+                    res.recycling = Math.max(0, (res.recycling || 0) - 1);
+                    const inventory = [...(od.inventory || []), instance];
+                    return { ...prev, [opp.id]: { ...od, resources: res, inventory } };
+                });
+
+                if (setLocalActionDeckCount) {
+                    setLocalActionDeckCount(prev => prev !== null ? Math.max(0, prev - 1) : prev);
+                }
+
+                addLog(`${opp.name} purchased an Action Card from the market.`);
+            }
+        }
+    }
 };

@@ -33,7 +33,8 @@ export default function CreateGamePage() {
     const [playerCount, setPlayerCount] = useState(3);
     const [isCreating, setIsCreating] = useState(false);
     const [isPrivate, setIsPrivate] = useState(false);
-    const [isTest, setIsTest] = useState(false);
+    const [isBotGame, setIsTest] = useState(false);
+    const [phaseTimer, setPhaseTimer] = useState<number>(0); // 0 = unlimited, 30/60/180 = seconds
     const [copied, setCopied] = useState(false);
     const [preGeneratedId, setPreGeneratedId] = useState("");
     const router = useRouter();
@@ -47,7 +48,7 @@ export default function CreateGamePage() {
     const handleCreate = async () => {
         if (!preGeneratedId) return;
         setIsCreating(true);
-        const gameId = await createRoom(roomName, playerCount, isPrivate, preGeneratedId, isTest);
+        const gameId = await createRoom(roomName, playerCount, isPrivate, preGeneratedId, isBotGame, phaseTimer);
         if (gameId) {
             router.push(`/game/lobby/${gameId}`);
         }
@@ -158,17 +159,42 @@ export default function CreateGamePage() {
                             </div>
 
                             <div className="grid grid-cols-3 items-center gap-4">
-                                <label className="text-gray-400 text-sm font-medium uppercase tracking-wider font-rajdhani">Test Game (Bots)</label>
+                                <label className="text-gray-400 text-sm font-medium uppercase tracking-wider font-rajdhani">Game vs. Bots</label>
                                 <div className="col-span-2">
                                     <div
-                                        onClick={() => !isCreating && setIsTest(!isTest)}
+                                        onClick={() => !isCreating && setIsTest(!isBotGame)}
                                         className={`w-full bg-black/50 border border-white/10 rounded px-4 py-3 cursor-pointer flex items-center justify-between transition-colors ${!isCreating && 'hover:border-[#d4af37]'}`}
                                     >
-                                        <span className={isTest ? "text-[#d4af37]" : "text-gray-500"}>{isTest ? "ON" : "OFF"}</span>
-                                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${isTest ? "border-[#d4af37] bg-[#d4af37]/20" : "border-gray-600"}`}>
-                                            {isTest && <Check size={14} className="text-[#d4af37]" />}
+                                        <span className={isBotGame ? "text-[#d4af37]" : "text-gray-500"}>{isBotGame ? "ON" : "OFF"}</span>
+                                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${isBotGame ? "border-[#d4af37] bg-[#d4af37]/20" : "border-gray-600"}`}>
+                                            {isBotGame && <Check size={14} className="text-[#d4af37]" />}
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 items-center gap-4">
+                                <label className="text-gray-400 text-sm font-medium uppercase tracking-wider font-rajdhani">Phase Timer</label>
+                                <div className="col-span-2 flex gap-2">
+                                    {[
+                                        { value: 0, label: 'Unlimited' },
+                                        { value: 180, label: '3 min' },
+                                        { value: 60, label: '1 min' },
+                                        { value: 30, label: '30 sec' },
+                                    ].map(opt => (
+                                        <button
+                                            key={opt.value}
+                                            onClick={() => !isCreating && setPhaseTimer(opt.value)}
+                                            disabled={isCreating}
+                                            className={`flex-1 py-2.5 rounded text-xs font-bold uppercase tracking-wider transition-all ${
+                                                phaseTimer === opt.value
+                                                    ? 'bg-[#d4af37]/20 border border-[#d4af37] text-[#d4af37]'
+                                                    : 'bg-black/50 border border-white/10 text-gray-500 hover:border-[#d4af37]/50 hover:text-gray-300'
+                                            } disabled:opacity-50`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 

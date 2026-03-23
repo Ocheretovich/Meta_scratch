@@ -13,7 +13,7 @@ A game consists of **N turns** determined by player count:
 | 2 | 5 | `MAX_TURNS[2]` in `core/constants` |
 | 3 | 5 | `MAX_TURNS[3]` |
 | 4 | 6 | `MAX_TURNS[4]` (2 vs 2 expected) |
-| Test mode | 3 | `TEST_MAX_TURNS` |
+| Game vs. Bots | 5 | `MAX_TURNS[3]` (3 players) |
 
 Each turn has 5 phases executed in strict order:
 
@@ -117,8 +117,7 @@ Used for Bets and Market purchases:
 // core/constants — DEFAULT_RESOURCES
 { gato: 1000, product: 1, energy: 1, recycle: 1, power: 0, art: 0, knowledge: 0, fame: 0 }
 
-// Test mode — TEST_RESOURCES
-{ gato: 1000, product: 2, energy: 2, recycle: 2, power: 2, art: 2, knowledge: 2, fame: 2 }
+// All players (including bots) use the same DEFAULT_RESOURCES
 ```
 
 ---

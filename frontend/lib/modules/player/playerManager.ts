@@ -5,7 +5,7 @@
  */
 
 import type { GamePlayer, PlayerResources } from '@/lib/modules/core/types';
-import { DEFAULT_RESOURCES, TEST_RESOURCES, ACTION_CARDS, DEFAULT_BOT_PLAYERS } from '@/lib/modules/core/constants';
+import { DEFAULT_RESOURCES, ACTION_CARDS, DEFAULT_BOT_PLAYERS } from '@/lib/modules/core/constants';
 
 /**
  * Resolves the local player's stable ID from available identifiers.
@@ -20,7 +20,7 @@ export function getLocalPlayerId(player: { citizenId?: string; address?: string 
  */
 export function buildPlayerList(
     localPlayer: { name?: string; avatar?: string; address?: string; citizenId?: string },
-    game: { players: any[]; isTest?: boolean } | null
+    game: { players: any[]; isBotGame?: boolean } | null
 ): GamePlayer[] {
     const mainPlayer: GamePlayer = {
         id: getLocalPlayerId(localPlayer),
@@ -50,7 +50,7 @@ export function buildPlayerList(
 
     const finalPlayers = [mainPlayer, ...otherPlayers];
 
-    if (game.isTest && finalPlayers.length < 3) {
+    if (game.isBotGame && finalPlayers.length < 3) {
         if (finalPlayers.length === 1) finalPlayers.push(DEFAULT_BOT_PLAYERS[0], DEFAULT_BOT_PLAYERS[1]);
         else if (finalPlayers.length === 2) finalPlayers.push(DEFAULT_BOT_PLAYERS[1]);
     }
@@ -60,16 +60,14 @@ export function buildPlayerList(
 
 /**
  * Initializes opponent resource data from the game.
+ * All players (human and bot) start with the same DEFAULT_RESOURCES.
  */
 export function initOpponentData(
-    game: { players: any[]; isTest?: boolean } | null,
+    game: { players: any[]; isBotGame?: boolean } | null,
     localCitizenId: string | undefined
 ): Record<string, { id: string; resources: Record<string, number>; cards: Record<string, number> }> {
     const opponents: Record<string, any> = {};
-    const isTest = game?.isTest;
-    const baseResources = isTest
-        ? { ...TEST_RESOURCES, vp: 0 }
-        : { ...DEFAULT_RESOURCES, vp: 0 };
+    const baseResources = { ...DEFAULT_RESOURCES, vp: 0 };
 
     if (game && game.players) {
         game.players.forEach((p: any) => {
@@ -78,7 +76,7 @@ export function initOpponentData(
                 opponents[id] = {
                     id,
                     resources: { ...baseResources },
-                    cards: isTest ? ACTION_CARDS.reduce((acc: any, c) => ({ ...acc, [c.id]: 2 }), {}) : {},
+                    cards: {},
                 };
             }
         });
@@ -87,7 +85,7 @@ export function initOpponentData(
             opponents[opp.id] = {
                 id: opp.id,
                 resources: { ...baseResources },
-                cards: isTest ? ACTION_CARDS.reduce((acc: any, c) => ({ ...acc, [c.id]: 2 }), {}) : {},
+                cards: {},
             };
         });
     }
