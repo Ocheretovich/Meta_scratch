@@ -240,10 +240,11 @@ export default function MapContainer({
                                     const opponentYOffset = a.playerId !== 'p1' ? -80 : 0;
                                     const finalY = baseSlotY + opponentYOffset;
 
-                                    // Opponent Marker 
+                                    // Opponent Marker
                                     if (a.playerId !== localPlayerId) {
                                         const opponent = players.find(p => p.id === a.playerId);
-                                        const playerAvatar = opponent?.avatar || "";
+                                        const playerAvatar = opponent?.avatar || a.ownerAvatar || "";
+                                        const playerName = opponent?.name || a.ownerName || "";
 
                                         return (
                                             <div
@@ -256,6 +257,7 @@ export default function MapContainer({
                                                 <OtherPlayerActorMarker
                                                     actor={{ ...actorDetails, type: actorDetails.type }}
                                                     playerAvatar={playerAvatar}
+                                                    playerName={playerName}
                                                     bid={phase >= 4 ? a.bid : undefined}
                                                     hasSecretBid={(phase === 2 || phase === 3) && !!a.bid}
                                                     isDisabled={disabledLocations.includes(loc.id)}

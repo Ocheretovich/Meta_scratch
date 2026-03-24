@@ -118,5 +118,5 @@ export function rpsOutcome(a: string, b: string): 'win' | 'lose' | 'draw' {
 export const DEFAULT_BOT_PLAYERS = [
     { id: 'p2', name: 'Viper', avatar: '/avatars/viper.png', color: '#ff4444' },
     { id: 'p3', name: 'Ghost', avatar: '/avatars/ghost.png', color: '#44ff44' },
-    { id: 'p4', name: 'Union', avatar: '/avatars/avatar_union.png', color: '#4444ff' },
+    { id: 'p4', name: 'Union', avatar: '/avatars/ghost.png', color: '#4444ff' },
 ];

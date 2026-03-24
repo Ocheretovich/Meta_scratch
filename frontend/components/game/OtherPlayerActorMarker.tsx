@@ -1,11 +1,13 @@
 "use client";
 
 import Image from 'next/image';
+import { useState } from 'react';
 import { useTooltip } from '@/context/TooltipContext';
 
 interface OtherPlayerActorMarkerProps {
     actor: { type: string, avatar: string, headAvatar?: string, id: string, name?: string }; // The actor
     playerAvatar?: string; // The player's citizen avatar
+    playerName?: string; // The player's name (for fallback initial)
     bid?: string; // Attached resource type
     hasSecretBid?: boolean; // New: indicates a bid exists but is hidden
     phase?: number;
@@ -26,8 +28,9 @@ const Resource_Icons: { [key: string]: string } = {
     'recycling': '/resources/resource_Recycle.png'
 };
 
-export default function OtherPlayerActorMarker({ actor, playerAvatar, bid, hasSecretBid, phase, p3Step, availableExchangeCards, availableRelocationCards, hudScale = 1, isDisabled = false, isRelocating = false, onClick }: OtherPlayerActorMarkerProps) {
+export default function OtherPlayerActorMarker({ actor, playerAvatar, playerName, bid, hasSecretBid, phase, p3Step, availableExchangeCards, availableRelocationCards, hudScale = 1, isDisabled = false, isRelocating = false, onClick }: OtherPlayerActorMarkerProps) {
     const { showTooltip, hideTooltip } = useTooltip();
+    const [avatarError, setAvatarError] = useState(false);
     const phaseScaleAdjust = phase && phase >= 3 ? 1.44 : 1.0;
 
     const showExchange = phase === 3 && p3Step === 4 && availableExchangeCards && availableExchangeCards > 0;
@@ -97,33 +100,35 @@ export default function OtherPlayerActorMarker({ actor, playerAvatar, bid, hasSe
             </div>
 
             {/* Layer 1b: Player Avatar (Blue Ring Area) */}
-            {/* Center approx 31.5, 95.5. Radius approx 25? Path shows D=... */}
-            {/* Center is 31.5, 95.5.  
-                Small inner circle stroke is d="... 57.5 " which is roughly radius 26 (31.5+26 = 57.5)
-                Let's use w-52px h-52px centered at 31.5, 95.5
-                Top-Left = 31.5 - 26 = 5.5, 95.5 - 26 = 69.5
-             */}
-            {playerAvatar && (
-                <div
-                    className={`absolute z-30 rounded-full overflow-hidden bg-black/60 border ${showExchange ? 'border-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.5)] scale-110' : 'border-blue-500/30'} transition-all duration-300`}
-                    style={{
-                        left: '5.5px',
-                        top: '69.5px',
-                        width: '52px',
-                        height: '52px'
-                    }}
-                >
-                    <div className="relative w-full h-full">
-                        <Image
+            {/* Center approx 31.5, 95.5. Radius approx 25? */}
+            {/* Top-Left = 31.5 - 26 = 5.5, 95.5 - 26 = 69.5 */}
+            <div
+                className={`absolute z-30 rounded-full overflow-hidden border ${showExchange ? 'border-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.5)] scale-110' : 'border-blue-500/30'} transition-all duration-300`}
+                style={{
+                    left: '5.5px',
+                    top: '69.5px',
+                    width: '52px',
+                    height: '52px'
+                }}
+            >
+                <div className="relative w-full h-full">
+                    {playerAvatar && !avatarError ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
                             src={playerAvatar}
-                            fill
-                            className="object-cover"
-                            alt="player"
+                            className="absolute inset-0 w-full h-full object-cover"
+                            alt={playerName || "player"}
+                            onError={() => setAvatarError(true)}
                         />
-                        {/* Interaction Overlay Removed - no exchange on board markers anymore */}
-                    </div>
+                    ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center">
+                            <span className="text-white font-bold text-lg drop-shadow-md">
+                                {(playerName || '?')[0].toUpperCase()}
+                            </span>
+                        </div>
+                    )}
                 </div>
-            )}
+            </div>
 
             {/* Layer 2: Foreground Strokes - Affected by grayscale */}
             <div className="absolute inset-0 z-20 pointer-events-none" style={{ filter: isDisabled ? 'grayscale(0.5) opacity(0.8)' : 'none' }}>

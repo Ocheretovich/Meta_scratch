@@ -53,7 +53,7 @@ export default function GameBoardPage() {
     }, [session.game, session.localPlayerId, router]);
 
     const {
-        game, phase, turn, placedActors, disabledLocations, 
+        game, phase, turn, placedActors, disabledLocations, locationsBlockedBy,
         opponentsReady, opponentsData, isGameOver, isTieBreakerScreen,
         activeConflictLocId, resolvedConflicts,
         currentEvent, eventResult, eventTieBreakerActive,
@@ -145,7 +145,7 @@ export default function GameBoardPage() {
 
                     {/* Phase Specific UI */}
                     {phase === 1 && (
-                        <Phase1Event 
+                        <Phase1Event
                             game={game}
                             currentEvent={currentEvent}
                             eventResult={eventResult}
@@ -154,7 +154,8 @@ export default function GameBoardPage() {
                             onConfirm={session.handleEventConfirm}
                             onClose={session.closeEvent}
                             eventTieBreakerActive={eventTieBreakerActive}
-                            onTieBreakerResolve={() => {}} 
+                            onTieBreakerResolve={session.handleEventTieBreakerResolve}
+                            onActivateTieBreaker={session.activateEventTieBreaker}
                             resources={resources}
                             onCommitTurn={() => session.handleNextPhaseWrapper()}
                         />
@@ -197,9 +198,10 @@ export default function GameBoardPage() {
                                 selectedRelocationCount={selectedRelocationCount}
                                 remainingRelocations={remainingRelocations}
                                 relocationSource={relocationSource}
+                                locationsBlockedBy={locationsBlockedBy}
                             />
                             {p3Step === 3 && !exchangeResults && exchangeCardsCount > 0 && (
-                                <Phase3Exchange 
+                                <Phase3Exchange
                                     resources={resources}
                                     exchangeStep={exchangeStep}
                                     exchangeSourceValue={exchangeSourceValue}
@@ -214,6 +216,7 @@ export default function GameBoardPage() {
                                     setExchangeTargetValue={session.setExchangeTargetValue}
                                     onCommit={() => session.handleExchangeCommit()}
                                     onNextPhase={() => session.handleNextPhaseWrapper()}
+                                    onReturnExchangeCards={() => session.returnUnusedExchangeCards()}
                                     addLog={session.addLog}
                                 />
                             )}

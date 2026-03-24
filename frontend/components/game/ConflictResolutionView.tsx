@@ -80,15 +80,18 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
                     let rewardText = "nothing";
                     let statusColor = "text-blue-400";
 
+                    // True round winner: won this round but can't end conflict (opponent saved by bet)
+                    const isRoundWinner = result?.roundWinnerIds?.includes(id) ?? false;
+
                     if (isRestartMode) {
                         if (wasSavedByBid) {
                             status = "SAVED";
                             statusColor = "text-purple-400";
                             rewardText = "Lose, saved by Bid, resolve again";
-                        } else if (isWinner) {
+                        } else if (isWinner || isRoundWinner) {
                             status = "WIN";
                             statusColor = "text-[#d4af37]";
-                            rewardText = "continues the conflict";
+                            rewardText = "Win → resolve again because of Bet Rules";
                         } else if (isLoser || isExitedEarly) {
                             status = "LOSE";
                             statusColor = "text-red-500";
@@ -369,7 +372,7 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
         conflict.opponents.forEach(opp => {
             if (newSurvivors.includes(opp.actorId)) {
                 // If bot, randomize. If human, it will be synced via useEffect.
-                const isBot = opp.actorId.startsWith('bot');
+                const isBot = (opp.playerId || opp.actorId).startsWith('bot');
                 if (isBot) {
                     const roll = Math.random();
                     newOppChoices[opp.actorId] = roll < 0.33 ? 'rock' : roll < 0.66 ? 'paper' : 'scissors';
@@ -645,9 +648,12 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
                                     // PvP: require player to have chosen AND all opponents to have submitted
                                     return !playerChoice || !pvpAllSubmitted;
                                 }
-                                // Bot: disable if any human participant hasn't committed yet
-                                const humans = [localPlayerId, ...conflict.opponents.map(o => o.actorId)].filter(id => !id.startsWith('bot'));
-                                return humans.some(id => id === localPlayerId ? !playerChoice : !opponentChoices[id]);
+                                // Bot game: only the local player needs to commit (bots auto-choose)
+                                // Filter to surviving human opponents only
+                                const survivingHumanOpps = conflict.opponents
+                                    .filter(o => survivorIds.includes(o.actorId) && !(o.playerId || o.actorId).startsWith('bot'));
+                                const humanIds = [localPlayerId, ...survivingHumanOpps.map(o => o.actorId)];
+                                return humanIds.some(id => id === localPlayerId ? !playerChoice : !opponentChoices[id]);
                             })()}
                             className="px-16 py-4 bg-[#d4af37] text-black font-black text-2xl uppercase tracking-[0.2em] rounded-sm hover:bg-[#ffe066] shadow-[0_0_40px_rgba(212,175,55,0.4)] transition-transform hover:scale-105 active:scale-95 animate-in zoom-in duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
                         >
@@ -657,9 +663,12 @@ export default function ConflictResolutionView({ game, conflict, isResolved, has
                                     if (!pvpAllSubmitted) return 'WAITING FOR OPPONENT...';
                                     return 'Reveal Conflict';
                                 }
-                                const humans = [localPlayerId, ...conflict.opponents.map(o => o.actorId)].filter(id => !id.startsWith('bot'));
-                                const pendingCount = humans.filter(id => id === localPlayerId ? !playerChoice : !opponentChoices[id]).length;
-                                return pendingCount > 0 ? `WAITING (${pendingCount}/${humans.length})` : 'Reveal Conflict';
+                                // Only count surviving human participants
+                                const survivingHumanOpps = conflict.opponents
+                                    .filter(o => survivorIds.includes(o.actorId) && !(o.playerId || o.actorId).startsWith('bot'));
+                                const humanIds = [localPlayerId, ...survivingHumanOpps.map(o => o.actorId)];
+                                const pendingCount = humanIds.filter(id => id === localPlayerId ? !playerChoice : !opponentChoices[id]).length;
+                                return pendingCount > 0 ? `WAITING (${pendingCount}/${humanIds.length})` : 'Reveal Conflict';
                             })()}
                         </button>
                     )}

@@ -93,6 +93,7 @@ export interface Conflict {
 
 export interface ConflictResult {
     winnerId: string | null;      // If null and shareRewards=false, conflict continues or draw
+    roundWinnerIds: string[];     // Who genuinely won this round (before bid-saves extended the conflict)
     loserIds: string[];           // IDs of actors that must leave immediately
     survivorIds: string[];        // IDs of actors that stay for the next iteration
     tieIds?: string[];            // IDs of actors who tied for the top (Used for UI DRAW status)

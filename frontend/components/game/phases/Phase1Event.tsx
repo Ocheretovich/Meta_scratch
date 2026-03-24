@@ -15,6 +15,7 @@ interface Phase1EventProps {
     onClose: () => void;
     eventTieBreakerActive: { conflict: any } | null;
     onTieBreakerResolve: (result: any) => void;
+    onActivateTieBreaker: () => void;
     resources: any;
     onCommitTurn: () => void;
 }
@@ -29,6 +30,7 @@ const Phase1Event: React.FC<Phase1EventProps> = ({
     onClose,
     eventTieBreakerActive,
     onTieBreakerResolve,
+    onActivateTieBreaker,
     resources,
     onCommitTurn
 }) => {
@@ -128,7 +130,7 @@ const Phase1Event: React.FC<Phase1EventProps> = ({
                             )}
                             <p className="text-white/70 text-sm text-center mb-4">{eventResult.msg}</p>
                             <button
-                                onClick={onClose}
+                                onClick={eventResult.isTie ? onActivateTieBreaker : onClose}
                                 className="px-8 py-3 bg-[#d4af37] text-black font-bold rounded hover:bg-[#ffe066]"
                             >
                                 {eventResult.isTie ? "RESOLVE CONFLICT" : "CONTINUE"}

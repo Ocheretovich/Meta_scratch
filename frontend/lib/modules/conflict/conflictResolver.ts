@@ -63,6 +63,7 @@ export function resolveConflictLogic(
     if (conflict.opponents.length === 0) {
         return {
             winnerId: localPlayerId,
+            roundWinnerIds: [localPlayerId],
             loserIds: [],
             survivorIds: [localPlayerId],
             isDraw: false,
@@ -272,6 +273,7 @@ export function resolveConflictLogic(
 
     return {
         winnerId: finalWinnerId,
+        roundWinnerIds: winnerIds,   // who actually won this round (before bid-saves extended conflict)
         loserIds,
         survivorIds,
         tieIds,

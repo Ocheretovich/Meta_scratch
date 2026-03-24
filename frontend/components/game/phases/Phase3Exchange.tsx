@@ -18,6 +18,7 @@ interface Phase3ExchangeProps {
     setExchangeTargetValue: (val: any) => void;
     onCommit: () => void;
     onNextPhase: () => void;
+    onReturnExchangeCards: () => void;
     addLog: (msg: string) => void;
 }
 
@@ -36,6 +37,7 @@ const Phase3Exchange: React.FC<Phase3ExchangeProps> = ({
     setExchangeTargetValue,
     onCommit,
     onNextPhase,
+    onReturnExchangeCards,
     addLog
 }) => {
     const hasExchangeableValues = useMemo(() => {
@@ -77,7 +79,7 @@ const Phase3Exchange: React.FC<Phase3ExchangeProps> = ({
                                             'bg-white/5 border-white/10 hover:border-[#d4af37]/50'
                                         }`}
                                     >
-                                        <Image src={res === 'knowledge' ? '/intangibles/resource_wisdom.png' : res === 'art' ? '/intangibles/resource_Art.png' : `/intangibles/resource_${res}.png`} width={48} height={48} alt={res} />
+                                        <Image src={res === 'knowledge' ? '/intangibles/resource_knowledge.png' : res === 'art' ? '/intangibles/resource_Art.png' : `/intangibles/resource_${res}.png`} width={48} height={48} alt={res} />
                                         <span className={`mt-3 font-bold uppercase ${isSelected ? 'text-black' : 'text-white'}`}>{res}</span>
                                         <span className={`text-xl font-black ${isSelected ? 'text-black' : 'text-[#d4af37]'}`}>{val}</span>
                                     </button>
@@ -115,7 +117,7 @@ const Phase3Exchange: React.FC<Phase3ExchangeProps> = ({
                                                             'bg-black/40 border-white/10 hover:border-[#d4af37]/30'
                                                         }`}
                                                     >
-                                                        <Image src={res === 'knowledge' ? '/intangibles/resource_wisdom.png' : res === 'art' ? '/intangibles/resource_Art.png' : `/intangibles/resource_${res}.png`} width={20} height={20} alt={res} />
+                                                        <Image src={res === 'knowledge' ? '/intangibles/resource_knowledge.png' : res === 'art' ? '/intangibles/resource_Art.png' : `/intangibles/resource_${res}.png`} width={20} height={20} alt={res} />
                                                         <span className={`text-sm font-bold ${isSelected ? 'text-black' : 'text-white'}`}>{val}</span>
                                                     </button>
                                                 );
@@ -138,6 +140,7 @@ const Phase3Exchange: React.FC<Phase3ExchangeProps> = ({
                             <button
                                 onClick={() => {
                                     addLog("No values to exchange. Change Values cards returned to hand.");
+                                    onReturnExchangeCards();
                                     onNextPhase();
                                 }}
                                 className="px-12 py-4 bg-white text-black font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)]"
@@ -154,6 +157,7 @@ const Phase3Exchange: React.FC<Phase3ExchangeProps> = ({
                             <button
                                 onClick={() => {
                                     addLog("Opponents have no values to exchange. Change Values card returned to hand.");
+                                    onReturnExchangeCards();
                                     onNextPhase();
                                 }}
                                 className="px-12 py-4 bg-white text-black font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)]"

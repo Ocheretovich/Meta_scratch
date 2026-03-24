@@ -34,7 +34,7 @@ export const MY_ACTORS = [
 const PLAYERS = [
     { id: 'p2', name: 'Viper', avatar: '/avatars/viper.png', color: '#ff4444' },
     { id: 'p3', name: 'Ghost', avatar: '/avatars/ghost.png', color: '#44ff44' },
-    { id: 'p4', name: 'Union', avatar: '/avatars/avatar_union.png', color: '#4444ff' },
+    { id: 'p4', name: 'Union', avatar: '/avatars/ghost.png', color: '#4444ff' },
 ];
 
 export function useBoardSession() {
@@ -48,6 +48,7 @@ export function useBoardSession() {
     const [turn, setTurn] = useState(1);
     const [placedActors, setPlacedActors] = useState<PlacedActor[]>([]);
     const [disabledLocations, setDisabledLocations] = useState<string[]>([]);
+    const [locationsBlockedBy, setLocationsBlockedBy] = useState<Record<string, string>>({});
     const [actionDiscardPile, setActionDiscardPile] = useState<ActionCardInstance[]>([]);
     const [eventDiscardPile, setEventDiscardPile] = useState<EventCardDefinition[]>([]);
     const [localEventDeckCount, setLocalEventDeckCount] = useState<number | null>(null);
@@ -221,10 +222,10 @@ export function useBoardSession() {
             if ((qty as number) <= 0) return;
             const card = actionHand.find(c => c.id === cid);
             if (!card) return;
-            const title = (card.title || '').toLowerCase();
-            if (title.includes('stop') || title.includes('block')) playerSteps.push(1);
-            if (title.includes('relocation')) playerSteps.push(2);
-            if (title.includes('change') || title.includes('exchange')) playerSteps.push(3);
+            // Classify card into Phase 3 sub-steps by type/properties
+            if (card.type === 'turn off location' || card.disables) playerSteps.push(1);
+            else if ((card.title || '').toLowerCase().includes('relocation')) playerSteps.push(2);
+            else if ((card.title || '').toLowerCase().includes('change') || (card.title || '').toLowerCase().includes('exchange')) playerSteps.push(3);
         });
 
         const finalCommits: Record<string, number[]> = { [localPlayerId]: Array.from(new Set(playerSteps)) };
@@ -253,7 +254,7 @@ export function useBoardSession() {
                         setDisabledLocations, setPlacedActors, setOpponentsReady,
                         setPendingRelocations, botCommits,
                         opponentsData, setOpponentsData, localPlayerId, resources,
-                        botSelections
+                        botSelections, setActionDiscardPile, setLocationsBlockedBy
                     );
                 }
             }
@@ -320,6 +321,12 @@ export function useBoardSession() {
             });
             if (playerBlockLocations.length > 0) {
                 setDisabledLocations(prev => [...prev, ...playerBlockLocations]);
+                const playerDisplayName = player.name || 'You';
+                setLocationsBlockedBy(prev => {
+                    const updates: Record<string, string> = {};
+                    playerBlockLocations.forEach(locId => { updates[locId] = playerDisplayName; });
+                    return { ...prev, ...updates };
+                });
                 // PvP: sync block card disabled locations to server
                 if (!game?.isBotGame && id) {
                     fetch(`/api/games/${id}`, {
@@ -343,7 +350,7 @@ export function useBoardSession() {
                 setDisabledLocations, setPlacedActors, setOpponentsReady,
                 setPendingRelocations, botActionCommitsRef.current,
                 opponentsData, setOpponentsData, localPlayerId, resources,
-                botCardSelectionsRef.current
+                botCardSelectionsRef.current, setActionDiscardPile, setLocationsBlockedBy
             );
         };
 
@@ -539,8 +546,8 @@ export function useBoardSession() {
                         playerActor,
                         opponents: opponentsRaw.map(o => ({
                             ...o,
-                            name: dynamicPlayers.find((p: any) => p.id === o.playerId)?.name || 'Unknown',
-                            playerAvatar: dynamicPlayers.find((p: any) => p.id === o.playerId)?.avatar || '',
+                            name: dynamicPlayers.find((p: any) => p.id === o.playerId)?.name || o.ownerName || 'Unknown',
+                            playerAvatar: dynamicPlayers.find((p: any) => p.id === o.playerId)?.avatar || o.ownerAvatar || '',
                             actorType: actorType,
                             avatar: o.avatar || '',
                             headAvatar: (o as any).headAvatar || ''
@@ -590,7 +597,10 @@ export function useBoardSession() {
             }
         }
 
-        if (game.gameState.disabledLocations) {
+        // Only sync disabledLocations from server for PvP games.
+        // In bot games, the client is the source of truth for disabledLocations
+        // (set locally when block cards are played at Phase 3 Step 0).
+        if (!game.isBotGame && game.gameState.disabledLocations) {
             const serverDisabled = game.gameState.disabledLocations;
             if (serverDisabled.length !== disabledLocations.length || serverDisabled.some((l: string) => !disabledLocations.includes(l))) {
                 setDisabledLocations(serverDisabled);
@@ -679,6 +689,13 @@ export function useBoardSession() {
         }
     }, [game?.gameState, isWaitingForPlayers, localPlayerId, resources, actionHand, actionDiscardPile, disabledLocations, p3Step, phase, setResources]);
 
+    // Reset locationsBlockedBy when disabledLocations is cleared (new turn)
+    useEffect(() => {
+        if (disabledLocations.length === 0) {
+            setLocationsBlockedBy({});
+        }
+    }, [disabledLocations]);
+
     // --- Phase 1 (Event) and Phase 2 (Distribution) initialization ---
     useEffect(() => {
         if (!game || game === '404') return;
@@ -692,8 +709,13 @@ export function useBoardSession() {
             // Turn 1 skips Phase 1 per rules; Turn 2+ draws an Event Card
             if (turn > 1) {
                 if (game.isBotGame) {
-                    // Bot game: draw client-side
-                    const drawnEvent = pickRandomEvent();
+                    // Bot game: draw client-side, excluding already-discarded cards
+                    const discardedIds = eventDiscardPile.map(e => e.id);
+                    const drawnEvent = pickRandomEvent(discardedIds);
+                    // If all cards were discarded, deck reshuffled — clear the discard pile
+                    if (discardedIds.length >= EVENTS.length) {
+                        setEventDiscardPile([]);
+                    }
                     setCurrentEvent(drawnEvent);
                     setEventResult(null);
                     setDiscardAmount(0);
@@ -735,7 +757,7 @@ export function useBoardSession() {
                 await triggerOpponentPlacements(
                     game,
                     [],
-                    PLAYERS,
+                    dynamicPlayers.filter((p: any) => p.id !== localPlayerId),
                     setOpponentsReady,
                     setPlacedActors,
                     setOpponentsData,
@@ -909,104 +931,8 @@ export function useBoardSession() {
     }, [currentEvent, discardAmount, player.name, dynamicPlayers, localPlayerId, opponentsData, resources, addLog, updateResource, actionHand]);
 
     const closeEvent = useCallback(() => {
-        // Handle tie resolution for bot games
-        if (eventResult?.isTie && currentEvent && game?.isBotGame) {
-            const playerName = player.name || '080';
-            const choices = ['rock', 'paper', 'scissors'];
-            const playerChoice = choices[Math.floor(Math.random() * 3)];
-            addLog(`Tie-breaker: ${playerName} plays ${playerChoice.toUpperCase()}`);
-
-            // Auto-resolve: player vs bots in RPS
-            const participants: string[] = eventResult.tieParticipants || [];
-            const results: { name: string; choice: string }[] = participants.map((name: string) => ({
-                name,
-                choice: name === playerName ? playerChoice : choices[Math.floor(Math.random() * 3)]
-            }));
-            results.forEach((r: { name: string; choice: string }) => { if (r.name !== playerName) addLog(`Tie-breaker: ${r.name} plays ${r.choice.toUpperCase()}`); });
-
-            // Simple RPS resolution: find unique winner or re-tie
-            const uniqueChoices = new Set(results.map((r: { name: string; choice: string }) => r.choice));
-            let winnerName: string | null = null;
-
-            if (uniqueChoices.size === 2) {
-                // Two different choices — determine which beats which
-                const choiceArr = Array.from(uniqueChoices) as string[];
-                const c1 = choiceArr[0], c2 = choiceArr[1];
-                const beats: Record<string, string> = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
-                const winningChoice = beats[c1] === c2 ? c1 : c2;
-                const winners = results.filter(r => r.choice === winningChoice);
-                if (winners.length === 1) {
-                    winnerName = winners[0].name;
-                }
-                // If multiple have the winning choice, pick randomly among them
-                if (!winnerName && winners.length > 0) {
-                    winnerName = winners[Math.floor(Math.random() * winners.length)].name;
-                }
-            }
-
-            if (!winnerName) {
-                // All same or all different — pick random winner
-                winnerName = participants[Math.floor(Math.random() * participants.length)];
-            }
-
-            addLog(`Tie-breaker winner: ${winnerName}!`);
-            const isPlayerWinner = winnerName === playerName;
-
-            // Award the event reward
-            if (currentEvent.reward === 'fame') {
-                if (isPlayerWinner) {
-                    updateResource('fame', 1);
-                } else {
-                    // Bot won fame
-                    const opponents = dynamicPlayers.filter((p: any) => p.id !== localPlayerId);
-                    const winnerBot = opponents.find((o: any) => o.name === winnerName);
-                    if (winnerBot) {
-                        setOpponentsData((prev: any) => {
-                            const od = prev[winnerBot.id];
-                            if (!od) return prev;
-                            const res = { ...od.resources } as any;
-                            res.fame = (res.fame || 0) + 1;
-                            return { ...prev, [winnerBot.id]: { ...od, resources: res } };
-                        });
-                    }
-                }
-            } else if (currentEvent.reward === 'action_card') {
-                if (isPlayerWinner) {
-                    const deck = ACTION_CARDS.filter(c => !actionHand.some(h => h.id === c.id));
-                    if (deck.length > 0) {
-                        const drawn = deck[Math.floor(Math.random() * deck.length)];
-                        const instance = { ...drawn, instanceId: `${drawn.id}_${Date.now()}` } as ActionCardInstance;
-                        setActionHand(prev => [...prev, instance]);
-                        setLocalActionDeckCount(prev => prev !== null ? Math.max(0, prev - 1) : prev);
-                        addLog(`Won an Action Card: ${drawn.title}!`);
-                    }
-                } else {
-                    // Bot won action card
-                    const opponents = dynamicPlayers.filter((p: any) => p.id !== localPlayerId);
-                    const winnerBot = opponents.find((o: any) => o.name === winnerName);
-                    if (winnerBot) {
-                        const botInv = opponentsData[winnerBot.id]?.inventory || [];
-                        const deck = ACTION_CARDS.filter(c => !botInv.some((h: any) => h.id === c.id));
-                        if (deck.length > 0) {
-                            const drawn = deck[Math.floor(Math.random() * deck.length)];
-                            const instance = { ...drawn, instanceId: `${drawn.id}_${Date.now()}` } as ActionCardInstance;
-                            setOpponentsData((prev: any) => {
-                                const od = prev[winnerBot.id];
-                                if (!od) return prev;
-                                const inventory = [...(od.inventory || []), instance];
-                                return { ...prev, [winnerBot.id]: { ...od, inventory } };
-                            });
-                            setLocalActionDeckCount(prev => prev !== null ? Math.max(0, prev - 1) : prev);
-                            addLog(`${winnerBot.name} won an Action Card!`);
-                        }
-                    }
-                }
-            }
-
-            const rewardLabel = currentEvent.reward === 'fame' ? '1 Fame' : 'an Action Card';
-            setEventResult({ msg: `Tie-breaker resolved! ${winnerName} wins and earns ${rewardLabel}!`, win: isPlayerWinner, winnerName, rewardLabel, isTie: false });
-            return;
-        }
+        // If tie is still active, don't close — user should use "RESOLVE CONFLICT" button
+        if (eventResult?.isTie) return;
 
         // Add used event card to event discard pile
         if (currentEvent) {
@@ -1036,7 +962,195 @@ export function useBoardSession() {
                 })
             }).catch(console.error);
         }
-    }, [addLog, eventResult, currentEvent, game?.isBotGame, player.name, updateResource, actionHand, id, localPlayerId, resources, turn]);
+    }, [addLog, eventResult, currentEvent, game?.isBotGame, id, localPlayerId, resources, turn]);
+
+    // Activate the RPS tie-breaker modal for event ties
+    const activateEventTieBreaker = useCallback(() => {
+        if (!eventResult?.isTie || !eventResult?.tieParticipants || !currentEvent) return;
+
+        const playerName = player.name || '080';
+        const participants = eventResult.tieParticipants;
+        const playerIsTied = participants.includes(playerName);
+
+        // If the player is NOT tied (only bots are tied), auto-resolve the bot-only tie
+        if (!playerIsTied && game?.isBotGame) {
+            const choices = ['rock', 'paper', 'scissors'];
+            const botResults = participants.map((name: string) => ({
+                name,
+                choice: choices[Math.floor(Math.random() * 3)]
+            }));
+
+            // Ensure at least one unique winner (avoid infinite draws)
+            // Force different choices if all are the same
+            if (new Set(botResults.map(r => r.choice)).size === 1 && botResults.length > 1) {
+                const beats: Record<string, string> = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
+                botResults[0].choice = Object.keys(beats).find(k => beats[k] === botResults[1].choice) || 'rock';
+            }
+
+            botResults.forEach(r => addLog(`Tie-breaker: ${r.name} plays ${r.choice.toUpperCase()}`));
+
+            // Determine winner
+            const uniqueChoices = new Set(botResults.map(r => r.choice));
+            let winnerName: string | null = null;
+
+            if (uniqueChoices.size === 2) {
+                const choiceArr = Array.from(uniqueChoices);
+                const beats: Record<string, string> = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
+                const winningChoice = beats[choiceArr[0]] === choiceArr[1] ? choiceArr[0] : choiceArr[1];
+                const winners = botResults.filter(r => r.choice === winningChoice);
+                winnerName = winners.length === 1 ? winners[0].name : winners[Math.floor(Math.random() * winners.length)].name;
+            }
+            if (!winnerName) {
+                winnerName = participants[Math.floor(Math.random() * participants.length)];
+            }
+
+            addLog(`Tie-breaker resolved! ${winnerName} wins!`);
+
+            // Award the reward to the winning bot
+            const winnerBot = dynamicPlayers.find((p: any) => p.name === winnerName);
+            if (winnerBot && currentEvent.reward === 'fame') {
+                setOpponentsData((prev: any) => {
+                    const od = prev[winnerBot.id];
+                    if (!od) return prev;
+                    const res = { ...od.resources } as any;
+                    res.fame = (res.fame || 0) + 1;
+                    return { ...prev, [winnerBot.id]: { ...od, resources: res } };
+                });
+            } else if (winnerBot && currentEvent.reward === 'action_card') {
+                const botInv = opponentsData[winnerBot.id]?.inventory || [];
+                const deck = ACTION_CARDS.filter(c => !botInv.some((h: any) => h.id === c.id));
+                if (deck.length > 0) {
+                    const drawn = deck[Math.floor(Math.random() * deck.length)];
+                    const instance = { ...drawn, instanceId: `${drawn.id}_${Date.now()}` } as ActionCardInstance;
+                    setOpponentsData((prev: any) => {
+                        const od = prev[winnerBot.id];
+                        if (!od) return prev;
+                        return { ...prev, [winnerBot.id]: { ...od, inventory: [...(od.inventory || []), instance] } };
+                    });
+                    setLocalActionDeckCount(prev => prev !== null ? Math.max(0, prev - 1) : prev);
+                }
+            }
+
+            const rewardLabel = currentEvent.reward === 'fame' ? '1 Fame' : 'an Action Card';
+            setEventResult({
+                msg: `Tie-breaker resolved! ${winnerName} wins and earns ${rewardLabel}!`,
+                win: false,
+                winnerName,
+                rewardLabel,
+                isTie: false
+            });
+            return;
+        }
+
+        // Player IS tied — show the RPS conflict resolution modal
+        const playerActor = {
+            actorId: localPlayerId,
+            playerId: localPlayerId,
+            name: playerName,
+            actorType: 'player',
+            type: '', // Will be set by player's RPS choice
+            avatar: player.avatar || '/avatars/golden_avatar.png',
+            headAvatar: player.avatar || '/avatars/golden_avatar.png',
+            playerAvatar: player.avatar || '/avatars/golden_avatar.png',
+        };
+
+        const opponents = participants
+            .filter((name: string) => name !== playerName)
+            .map((name: string) => {
+                const botPlayer = dynamicPlayers.find((p: any) => p.name === name);
+                return {
+                    actorId: botPlayer?.id || name,
+                    playerId: botPlayer?.id || name,
+                    name: name,
+                    actorType: 'player',
+                    type: '', // Bot RPS will be auto-assigned
+                    avatar: botPlayer?.avatar || '/avatars/ghost.png',
+                    headAvatar: botPlayer?.avatar || '/avatars/ghost.png',
+                    playerAvatar: botPlayer?.avatar || '/avatars/ghost.png',
+                };
+            });
+
+        const conflict = {
+            locId: `event_${currentEvent.id}`,
+            locationName: currentEvent.title || 'Event',
+            playerActor,
+            opponents,
+            resourceType: currentEvent.reward === 'fame' ? 'fame' : 'action_card',
+        };
+
+        setEventTieBreakerActive({ conflict });
+    }, [eventResult, currentEvent, player, localPlayerId, dynamicPlayers, game?.isBotGame, addLog, opponentsData]);
+
+    // Handle the result from the event tie-breaker RPS
+    const handleEventTieBreakerResolve = useCallback((result: ConflictResult) => {
+        if (!currentEvent || !eventResult) return;
+
+        const playerName = player.name || '080';
+        const isPlayerWinner = result.winnerId === localPlayerId;
+        const winnerName = isPlayerWinner ? playerName : (
+            dynamicPlayers.find((p: any) => p.id === result.winnerId)?.name || 'Unknown'
+        );
+
+        // Award the event reward
+        if (currentEvent.reward === 'fame') {
+            if (isPlayerWinner) {
+                updateResource('fame', 1);
+            } else {
+                const winnerBot = dynamicPlayers.find((p: any) => p.id === result.winnerId);
+                if (winnerBot) {
+                    setOpponentsData((prev: any) => {
+                        const od = prev[winnerBot.id];
+                        if (!od) return prev;
+                        const res = { ...od.resources } as any;
+                        res.fame = (res.fame || 0) + 1;
+                        return { ...prev, [winnerBot.id]: { ...od, resources: res } };
+                    });
+                }
+            }
+        } else if (currentEvent.reward === 'action_card') {
+            if (isPlayerWinner) {
+                const deck = ACTION_CARDS.filter(c => !actionHand.some(h => h.id === c.id));
+                if (deck.length > 0) {
+                    const drawn = deck[Math.floor(Math.random() * deck.length)];
+                    const instance = { ...drawn, instanceId: `${drawn.id}_${Date.now()}` } as ActionCardInstance;
+                    setActionHand(prev => [...prev, instance]);
+                    setLocalActionDeckCount(prev => prev !== null ? Math.max(0, prev - 1) : prev);
+                    addLog(`Won an Action Card: ${drawn.title}!`);
+                }
+            } else {
+                const winnerBot = dynamicPlayers.find((p: any) => p.id === result.winnerId);
+                if (winnerBot) {
+                    const botInv = opponentsData[winnerBot.id]?.inventory || [];
+                    const deck = ACTION_CARDS.filter(c => !botInv.some((h: any) => h.id === c.id));
+                    if (deck.length > 0) {
+                        const drawn = deck[Math.floor(Math.random() * deck.length)];
+                        const instance = { ...drawn, instanceId: `${drawn.id}_${Date.now()}` } as ActionCardInstance;
+                        setOpponentsData((prev: any) => {
+                            const od = prev[winnerBot.id];
+                            if (!od) return prev;
+                            const inventory = [...(od.inventory || []), instance];
+                            return { ...prev, [winnerBot.id]: { ...od, inventory } };
+                        });
+                        setLocalActionDeckCount(prev => prev !== null ? Math.max(0, prev - 1) : prev);
+                        addLog(`${winnerBot.name} won an Action Card!`);
+                    }
+                }
+            }
+        }
+
+        const rewardLabel = currentEvent.reward === 'fame' ? '1 Fame' : 'an Action Card';
+        addLog(`Event tie-breaker resolved! ${winnerName} wins and earns ${rewardLabel}!`);
+
+        // Clear tie-breaker and set result to resolved (non-tie)
+        setEventTieBreakerActive(null);
+        setEventResult({
+            msg: `Tie-breaker resolved! ${winnerName} wins and earns ${rewardLabel}!`,
+            win: isPlayerWinner,
+            winnerName,
+            rewardLabel,
+            isTie: false
+        });
+    }, [currentEvent, eventResult, player, localPlayerId, dynamicPlayers, updateResource, actionHand, opponentsData, addLog]);
 
     const handleActorSelect = useCallback((actorId: string) => {
         if (placedActors.find(p => p.actorId === actorId)) return;
@@ -1300,11 +1414,31 @@ export function useBoardSession() {
         });
     }, [actionHand]);
 
+    // Deselect exchange/change_values cards so they return to hand instead of being discarded
+    const returnUnusedExchangeCards = useCallback(() => {
+        setSelectedActionCards(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(cid => {
+                const card = actionHand.find(c => c.id === cid);
+                if (card && ((card.title || '').toLowerCase().includes('change') || (card.title || '').toLowerCase().includes('exchange'))) {
+                    updated[cid] = 0;
+                }
+            });
+            return updated;
+        });
+    }, [actionHand]);
+
     const handleSelectConflict = useCallback((locId: string) => {
         setActiveConflictLocId(locId);
     }, []);
 
     const handleConflictResolve = useCallback((result: ConflictResult, locId: string) => {
+        // Prevent duplicate reward claims for already-resolved conflicts
+        if (resolvedConflicts.includes(locId)) {
+            setActiveConflictLocId(null);
+            return;
+        }
+
         setResolvedConflicts(prev => [...prev, locId]);
         setActiveConflictLocId(null);
 
@@ -1335,13 +1469,16 @@ export function useBoardSession() {
 
         // Award resources to bot opponents (only in bot games — PvP opponents handle their own)
         if (game?.isBotGame) {
+            console.log('[DEBUG] Bot reward: isBotGame=true, opponents=', conflict.opponents.length, 'actorType=', actorType, 'rewardType=', rewardType, 'isTruce=', isTruce);
             conflict.opponents.forEach((opp: any) => {
                 const isOppWinner = result.winnerId === opp.playerId || result.winnerId === opp.actorId;
                 const oppEliminated = result.loserIds?.includes(opp.playerId) || result.loserIds?.includes(opp.actorId);
                 const oppReward = oppEliminated ? 0 : calculateReward(actorType as ActorType, isOppWinner, isTruce, result.successfulBids, opp.actorId);
+                console.log('[DEBUG] Bot opp:', opp.playerId, 'actorId=', opp.actorId, 'isWinner=', isOppWinner, 'eliminated=', oppEliminated, 'reward=', oppReward, 'winnerId=', result.winnerId, 'loserIds=', result.loserIds);
                 if (oppReward > 0 && rewardType) {
                     setOpponentsData((prev: Record<string, OpponentData>) => {
                         const oppData = prev[opp.playerId];
+                        console.log('[DEBUG] setOpponentsData: key=', opp.playerId, 'found=', !!oppData, 'prevKeys=', Object.keys(prev));
                         if (!oppData) return prev;
                         return {
                             ...prev,
@@ -1371,7 +1508,7 @@ export function useBoardSession() {
                 })
             }).catch(console.error);
         }
-    }, [addLog, stickyConflicts, localPlayerId, updateResource, setOpponentsData, game?.isBotGame, id, resources]);
+    }, [addLog, stickyConflicts, localPlayerId, updateResource, setOpponentsData, game?.isBotGame, id, resources, resolvedConflicts]);
 
     const handleCloseConflict = useCallback(() => {
         setActiveConflictLocId(null);
@@ -1433,7 +1570,7 @@ export function useBoardSession() {
 
     return {
         // State
-        game, phase, turn, placedActors, disabledLocations, actionDiscardPile, eventDiscardPile,
+        game, phase, turn, placedActors, disabledLocations, locationsBlockedBy, actionDiscardPile, eventDiscardPile,
         opponentsReady, opponentsData, isGameOver, isTieBreakerScreen, tieWinners,
         isWaitingForTieBreaker, activeConflictLocId, resolvedConflicts,
         currentEvent, discardAmount, eventResult, eventTieBreakerActive,
@@ -1466,6 +1603,8 @@ export function useBoardSession() {
         handleNextPhaseWrapper,
         handleEventConfirm,
         closeEvent,
+        activateEventTieBreaker,
+        handleEventTieBreakerResolve,
         handleActorSelect,
         handleHexClick,
         handleRSPSelect,
@@ -1474,6 +1613,7 @@ export function useBoardSession() {
         handleRelocationActorClick,
         handleActionCardToggle,
         handleExchangeCommit,
+        returnUnusedExchangeCards,
         handleSelectConflict,
         handleConflictResolve,
         handleCloseConflict,

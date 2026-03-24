@@ -8,10 +8,14 @@ import type { EventCardDefinition, PlayerResources } from '@/lib/modules/core/ty
 import { EVENTS } from '@/lib/modules/core/constants';
 
 /**
- * Picks a random event card from the deck.
+ * Picks a random event card from the deck, excluding already-discarded cards.
+ * If all cards have been discarded (deck exhausted), reshuffles automatically.
+ * @param discardedIds - IDs of cards already in the discard pile
  */
-export function pickRandomEvent(): EventCardDefinition {
-    return EVENTS[Math.floor(Math.random() * EVENTS.length)];
+export function pickRandomEvent(discardedIds: string[] = []): EventCardDefinition {
+    const available = EVENTS.filter(e => !discardedIds.includes(e.id));
+    const deck = available.length > 0 ? available : EVENTS; // reshuffle when deck exhausted
+    return deck[Math.floor(Math.random() * deck.length)];
 }
 
 interface EventResult {

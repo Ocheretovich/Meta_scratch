@@ -3,6 +3,7 @@
 import React from 'react';
 import Image from 'next/image';
 import { ActionCardInstance } from '@/lib/modules/core/types';
+import { LOCATIONS } from '@/data/gameConstants';
 import ActionCardsPanel from '../ActionCardsPanel';
 
 interface Phase3ActionProps {
@@ -23,6 +24,7 @@ interface Phase3ActionProps {
     selectedRelocationCount?: number;
     remainingRelocations?: number;
     relocationSource?: string | null;
+    locationsBlockedBy?: Record<string, string>;
 }
 
 const Phase3Action: React.FC<Phase3ActionProps> = ({
@@ -42,7 +44,8 @@ const Phase3Action: React.FC<Phase3ActionProps> = ({
     exchangeResults,
     selectedRelocationCount = 0,
     remainingRelocations = 0,
-    relocationSource = null
+    relocationSource = null,
+    locationsBlockedBy = {}
 }) => {
     // Step 0: Select Action Cards
     if (p3Step === 0) {
@@ -68,16 +71,25 @@ const Phase3Action: React.FC<Phase3ActionProps> = ({
                     <h2 className="text-3xl font-black text-[#d4af37] mb-6 uppercase tracking-widest">Blocked Locations</h2>
                     
                     {disabledLocations.length > 0 ? (
-                        <div className="flex flex-col items-center gap-2 mb-8">
+                        <div className="flex flex-col items-center gap-3 mb-8 w-full">
                             {disabledLocations.map(locId => {
-                                const locDef = (window as any).LOCATIONS?.find((l: any) => l.id === locId) || { name: locId };
-                                const disablingCard = actionDiscardPile.find(c => c.disables === locId);
-                                const reason = disablingCard ? `${disablingCard.title}` : `the area is under construction`;
+                                const locDef = LOCATIONS.find((l: any) => l.id === locId) || { name: locId };
+                                const disablingCard = actionHand.find(c => c.disables === locId) || actionDiscardPile.find(c => c.disables === locId);
+                                const cardTitle = disablingCard ? disablingCard.title : 'Sabotage';
+                                const blockedByName = locationsBlockedBy[locId];
                                 return (
-                                    <p key={locId} className="text-white text-xl font-rajdhani uppercase tracking-wider text-center">
-                                        <span className="text-[#d4af37] font-bold">{locDef.name}</span> will not work this turn, <br/>
-                                        <span className="text-white/40 text-sm">because of the {reason}.</span>
-                                    </p>
+                                    <div key={locId} className="w-full bg-[#1a1a24] border border-[#d4af37]/20 rounded-lg px-6 py-3 text-center">
+                                        <p className="text-white text-xl font-rajdhani uppercase tracking-wider">
+                                            <span className="text-[#d4af37] font-bold">{locDef.name}</span>
+                                            <span className="text-white/70"> will not work this turn</span>
+                                        </p>
+                                        <p className="text-white/40 text-sm mt-1">
+                                            {blockedByName
+                                                ? <><span className="text-[#e07060] font-semibold">{blockedByName}</span> played <span className="italic">{cardTitle}</span></>
+                                                : <>because of the area under construction</>
+                                            }
+                                        </p>
+                                    </div>
                                 );
                             })}
                         </div>

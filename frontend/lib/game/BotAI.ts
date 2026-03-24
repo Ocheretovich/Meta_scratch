@@ -1,6 +1,6 @@
 import { LOCATIONS, ALLOWED_MOVES, ACTION_CARDS } from '@/data/gameConstants';
 import { ActionCardInstance } from '@/lib/modules/core/types';
-import { calculateVictoryPoints } from '@/lib/modules/resources/resourceManager';
+import { calculateVictoryPoints, calculateReward } from '@/lib/modules/resources/resourceManager';
 
 // ─── Bot Inventory Helpers ────────────────────────────────────────
 
@@ -23,20 +23,25 @@ export const addCardToBotInventory = (
     });
 };
 
-/** Remove used cards from bot inventory and add to discard pile */
+/** Remove used cards from bot inventory, add to per-bot pile AND the shared global discard pile */
 const consumeBotCards = (
     setOpponentsData: (cb: (prev: any) => any) => void,
     botId: string,
-    cardIds: string[]
+    cards: ActionCardInstance[],  // full card objects — known synchronously at the call site
+    setActionDiscardPile?: (cb: (prev: ActionCardInstance[]) => ActionCardInstance[]) => void
 ) => {
+    const cardIds = cards.map(c => c.id);
     setOpponentsData((prev: any) => {
         const od = prev[botId];
         if (!od) return prev;
         const inventory = (od.inventory || []).filter((c: ActionCardInstance) => !cardIds.includes(c.id));
-        const discarded = (od.inventory || []).filter((c: ActionCardInstance) => cardIds.includes(c.id));
-        const discardPile = [...(od.discardPile || []), ...discarded];
+        const discardPile = [...(od.discardPile || []), ...cards];
         return { ...prev, [botId]: { ...od, inventory, discardPile } };
     });
+    // Push synchronously to the shared global discard pile (cards are already known here)
+    if (setActionDiscardPile && cards.length > 0) {
+        setActionDiscardPile(prev => [...prev, ...cards]);
+    }
 };
 
 // ─── Bot Card Selection Logic (Phase 3 Step 0) ───────────────────
@@ -202,7 +207,9 @@ export const triggerBotPhase3Actions = async (
     setOpponentsData?: (cb: (prev: any) => any) => void,
     localPlayerId?: string,
     localResources?: any,
-    botCardSelections?: Record<string, BotCardDecision>
+    botCardSelections?: Record<string, BotCardDecision>,
+    setActionDiscardPile?: (cb: (prev: ActionCardInstance[]) => ActionCardInstance[]) => void,
+    setLocationsBlockedBy?: (cb: (prev: Record<string, string>) => Record<string, string>) => void
 ) => {
     if (!game?.isBotGame) return;
 
@@ -224,12 +231,18 @@ export const triggerBotPhase3Actions = async (
                     if (prev.includes(card.disables!)) return prev;
                     return [...prev, card.disables!];
                 });
+                // Record who blocked this location for the UI
+                if (setLocationsBlockedBy) {
+                    const blockerName = opp.name || 'Bot';
+                    const locId = card.disables!;
+                    setLocationsBlockedBy(prev => ({ ...prev, [locId]: blockerName }));
+                }
                 const locName = LOCATIONS.find(l => l.id === card.disables)?.name || card.disables;
                 await addLog(`${opp.name} activated ${card.title} — ${locName.toUpperCase()} is now DISABLED`);
             }
             // Consume used block cards
             if (setOpponentsData) {
-                consumeBotCards(setOpponentsData, opp.id, selection.blockCards.map(c => c.id));
+                consumeBotCards(setOpponentsData, opp.id, selection.blockCards, setActionDiscardPile);
             }
         } else if (step === 2 && selection?.relocationCards) {
             // Step 2: Relocation
@@ -304,7 +317,7 @@ export const triggerBotPhase3Actions = async (
             }
             // Consume used relocation cards
             if (setOpponentsData) {
-                consumeBotCards(setOpponentsData, opp.id, selection.relocationCards.map(c => c.id));
+                consumeBotCards(setOpponentsData, opp.id, selection.relocationCards, setActionDiscardPile);
             }
         } else if (step === 3 && selection?.exchangeCards) {
             // Step 3: Change Values — smart exchange
@@ -372,7 +385,7 @@ export const triggerBotPhase3Actions = async (
             }
             // Consume used exchange cards
             if (setOpponentsData) {
-                consumeBotCards(setOpponentsData, opp.id, selection.exchangeCards.map(c => c.id));
+                consumeBotCards(setOpponentsData, opp.id, selection.exchangeCards, setActionDiscardPile);
             }
         }
 
@@ -422,16 +435,15 @@ export const resolveBotOnlyConflicts = async (
             const botName = dynamicPlayers.find(p => p.id === bot.playerId)?.name || 'Bot';
             const actorTypeName = bot.actorType.charAt(0).toUpperCase() + bot.actorType.slice(1);
 
-            let resource = '';
-            let amount = 1;
-            if (bot.actorType === 'politician') resource = 'Power';
-            else if (bot.actorType === 'scientist') resource = 'Knowledge';
-            else if (bot.actorType === 'artist') resource = 'Art';
-            else if (bot.actorType === 'robot') {
-                // Robot wins → 3 of the location's resource
-                resource = (locDef?.resource || 'product').charAt(0).toUpperCase() + (locDef?.resource || 'product').slice(1);
-                amount = 3;
-            }
+            const rewardTypeRaw = bot.actorType === 'robot'
+                ? (locDef?.resource || 'product')
+                : bot.actorType === 'politician' ? 'power'
+                : bot.actorType === 'scientist' ? 'knowledge'
+                : bot.actorType === 'artist' ? 'art' : 'fame';
+            const resource = rewardTypeRaw.charAt(0).toUpperCase() + rewardTypeRaw.slice(1);
+            // Uncontested win: actor always wins; apply bet bonus via calculateReward
+            const successfulBids = bot.bid ? [{ actorId: bot.actorId, bid: bot.bid }] : [];
+            const amount = calculateReward(bot.actorType, true, false, successfulBids, bot.actorId);
 
             await addLog(`${botName}'s ${actorTypeName} has no rivals at ${realLocName}. They secured ${amount} ${resource}!`);
 
@@ -450,7 +462,12 @@ export const resolveBotOnlyConflicts = async (
             const bot2 = actors[1];
 
             const t1 = tokens[Math.floor(Math.random() * 3)];
-            const t2 = tokens[Math.floor(Math.random() * 3)];
+            // Ensure bot2 picks a DIFFERENT token to avoid infinite draw loops
+            let t2 = tokens[Math.floor(Math.random() * 3)];
+            if (t2 === t1) {
+                const others = tokens.filter(t => t !== t1);
+                t2 = others[Math.floor(Math.random() * others.length)];
+            }
 
             const b1Name = dynamicPlayers.find(p => p.id === bot1.playerId)?.name || 'Bot 1';
             const b2Name = dynamicPlayers.find(p => p.id === bot2.playerId)?.name || 'Bot 2';
@@ -467,16 +484,14 @@ export const resolveBotOnlyConflicts = async (
                 const winner = wins[t1] === t2 ? bot1 : bot2;
                 const winnerName = dynamicPlayers.find(p => p.id === winner.playerId)?.name || 'Bot';
 
-                let resource = '';
-                let amount = 1;
-                if (winner.actorType === 'politician') resource = 'Power';
-                else if (winner.actorType === 'scientist') resource = 'Knowledge';
-                else if (winner.actorType === 'artist') resource = 'Art';
-                else if (winner.actorType === 'robot') {
-                    // Robot wins → 3 of the location's resource
-                    resource = (locDef?.resource || 'product').charAt(0).toUpperCase() + (locDef?.resource || 'product').slice(1);
-                    amount = 3;
-                }
+                const winnerRewardTypeRaw = winner.actorType === 'robot'
+                    ? (locDef?.resource || 'product')
+                    : winner.actorType === 'politician' ? 'power'
+                    : winner.actorType === 'scientist' ? 'knowledge'
+                    : winner.actorType === 'artist' ? 'art' : 'fame';
+                const resource = winnerRewardTypeRaw.charAt(0).toUpperCase() + winnerRewardTypeRaw.slice(1);
+                const successfulBids = winner.bid ? [{ actorId: winner.actorId, bid: winner.bid }] : [];
+                const amount = calculateReward(winner.actorType, true, false, successfulBids, winner.actorId);
 
                 await addLog(`${winnerName}'s ${actorTypeName} WON at ${realLocName} and secured ${amount} ${resource}!`);
 
@@ -517,11 +532,13 @@ export const triggerOpponentPlacements = async (
     setOpponentsReady(false);
     await new Promise(r => setTimeout(r, 1500));
 
-    const botIdentities = [
-        { id: 'p2', name: 'Viper' },
-        { id: 'p3', name: 'Ghost' },
-        { id: 'p4', name: 'Union' }
-    ];
+    // Use actual player IDs from the passed-in PLAYERS list so actor playerId
+    // matches opponentsData keys (which are keyed by citizenId from game.players)
+    const activeBots = PLAYERS.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        playerAvatar: p.avatar
+    }));
 
     const actorDefinitions = [
         { type: "politician", name: "Politician", avatar: "/actors/Polotican.png", headAvatar: "/actors/Politican_head.png" },
@@ -533,11 +550,8 @@ export const triggerOpponentPlacements = async (
     const rspTokens = ['rock', 'paper', 'scissors'];
     const bidTypes = ['product', 'electricity', 'recycling'];
 
-    // Use bot identities directly — bot players are not stored in game.players
-    const activeBots = botIdentities;
-
     for (const bot of activeBots) {
-        const botId = bot.citizenId || bot.id;
+        const botId = bot.id;
         const botName = bot.name;
 
         // Get bot's block cards to know which locations to avoid
@@ -589,7 +603,10 @@ export const triggerOpponentPlacements = async (
                 actorType: def.type,
                 avatar: def.avatar,
                 headAvatar: def.headAvatar,
-                bid: bid
+                bid: bid,
+                // Embed owner info so MapContainer can show avatars without lookup
+                ownerName: botName,
+                ownerAvatar: bot.playerAvatar
             };
 
             setPlacedActors(prev => {

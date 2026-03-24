@@ -86,14 +86,15 @@ export default function ConflictsSidebar({ conflicts, resolvedIds, activeConflic
                     return (
                         <button
                             key={conflict.locId}
-                            onClick={() => onSelectConflict(conflict.locId)}
+                            onClick={() => !isResolved && onSelectConflict(conflict.locId)}
+                            disabled={isResolved}
                             className={`
-                                relative group flex items-center gap-4 p-4 rounded-xl border transition-all duration-300 w-full text-left cursor-pointer
+                                relative group flex items-center gap-4 p-4 rounded-xl border transition-all duration-300 w-full text-left
                                 ${isActive
-                                    ? 'bg-[#d4af37]/20 border-[#d4af37] shadow-[0_0_15px_rgba(212,175,55,0.2)]'
+                                    ? 'bg-[#d4af37]/20 border-[#d4af37] shadow-[0_0_15px_rgba(212,175,55,0.2)] cursor-pointer'
                                     : isResolved
-                                        ? 'bg-white/5 border-white/5 opacity-60'
-                                        : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
+                                        ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed'
+                                        : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20 cursor-pointer'
                                 }
                             `}
                         >
@@ -106,7 +107,7 @@ export default function ConflictsSidebar({ conflicts, resolvedIds, activeConflic
                                         {conflict.locationName} {(conflict as any).isPeaceful && <span className="ml-1 text-[9px] text-blue-400 font-black">[UNDISPUTED]</span>}
                                     </span>
                                     {isResolved && (
-                                        <span className="text-[9px] font-black text-[#d4af37] bg-[#d4af37]/20 px-1.5 py-0.5 rounded border border-[#d4af37]/40">VIEWED</span>
+                                        <span className="text-[9px] font-black text-green-400 bg-green-900/30 px-1.5 py-0.5 rounded border border-green-400/40">RESOLVED</span>
                                     )}
                                 </div>
 
@@ -120,6 +121,7 @@ export default function ConflictsSidebar({ conflicts, resolvedIds, activeConflic
                                                     <OtherPlayerActorMarker
                                                         actor={opp}
                                                         playerAvatar={opp.playerAvatar}
+                                                        playerName={opp.name}
                                                         bid={undefined}
                                                         phase={3}
                                                     />
