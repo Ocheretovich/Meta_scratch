@@ -43,11 +43,11 @@ contract MetarchyGame is ReentrancyGuard {
 
     uint256 public nextGameId;
 
-    event GameCreated(uint256 gameId, address creator);
-    event PlayerJoined(uint256 gameId, address player);
-    event PhaseChanged(uint256 gameId, GamePhase newPhase);
-    event MoveCommitted(uint256 gameId, address player);
-    event MoveRevealed(uint256 gameId, address player);
+    event GameCreated(uint256 indexed gameId, address indexed creator);
+    event PlayerJoined(uint256 indexed gameId, address indexed player);
+    event PhaseChanged(uint256 indexed gameId, GamePhase newPhase);
+    event MoveCommitted(uint256 indexed gameId, address indexed player);
+    event MoveRevealed(uint256 indexed gameId, address indexed player);
 
     constructor(address _tokenContract) {
         tokens = MetarchyTokens(_tokenContract);
